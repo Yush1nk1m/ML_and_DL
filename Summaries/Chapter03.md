@@ -312,3 +312,205 @@ plt.show()
 
 
 ## 3.6 신경망의 구조: 핵심 Keras API 이해하기
+
+### 3.6.1 층: 딥러닝의 구성 요소
+
+신경망의 기본 데이터 구조는 **층**(layer)이다. 층은 하나 이상의 텐서를 입력으로 받고, 하나 이상의 텐서를 출력하는 데이터 처리 모듈이다. 대부분의 경우 **가중치**(weight)라는 층의 상태를 가진다. 가중치는 확률적 경사 하강법으로 학습되는 하나 이상의 텐서이며 신경망이 학습한 지식이 축적되어 있다.
+
+층마다 적절한 텐서 포맷과 데이터 처리 방식이 다르다. **밀집 연결 층**(densely connected layer), **밀집 층**(dense layer) 또는 **완전 연결 층**(fully connected layer)이라고 불리는 층은 케라스의 `Dense` 클래스에 해당하고, 랭크-2 텐서에 저장된 (samples, features)와 같은 간단한 데이터에 사용 가능하다. **순환 층**(recurrent layer)이나 **1D 합성곱 층**(convolution layer, Conv1D)으로는 일반적으로 랭크-3 텐서에 저장된 시퀀스 데이터를 처리한다. **2D 합성곱 층**(Conv2D)으로는 일반적으로 랭크-4 텐서에 저장된 이미지 데이터를 처리한다.
+
+케라스에서 딥러닝 모델을 만드는 것은 호환되는 층을 연결하여 유용한 데이터 변환 파이프라인을 구성하는 것이다.
+
+#### 케라스의 Layer 클래스
+
+케라스에서는 `Layer` 또는 `Layer`와 밀접하게 상호작용하는 것이 전부이다.
+
+`Layer`는 상태(가중치), 연산(정방향 패스)을 캡슐화한 객체이다. 가중치는 `build()` 메소드에서 정의하고, 연산은 `call()` 메소드에서 정의한다.
+
+2개의 상태 `W`, `b`를 가지고 `output = activation(dot(input, W) + b)` 연산을 수행하는 케라스 층을 구현해보자.
+
+**코드 3-22. Layer의 서브클래스(subclass)로 구현한 Dense 층**
+```
+from tensorflow import keras
+
+# 모든 케라스 층은 Layer 클래스를 상속한다다
+class SimpleDense(keras.layers.Layer):
+    def __init__(self, units, activation=None):
+        super().__init__()
+        self.units = units
+        self.activation = activation
+        
+    # build 메소드에서 가중치를 생성한다
+    def build(self, input_shape):
+        input_dim = input_shape[-1]
+        self.W = self.add_weight(shape=(input_dim, self.units),
+                                 initializer="random_normal")
+        self.b = self.add_weight(shape=(self.units, ),
+                                 initializer="zeros")
+        
+    def call(self, inputs):
+        y = tf.matmul(inputs, self.W) + self.b
+        if self.activation is not None:
+            y = self.activation(y)
+        return y
+```
+
+클래스 인스턴스를 생성하면 텐서를 입력으로 받는 함수처럼 사용할 수 있다.
+
+#### 자동 크기 추론: 동적으로 층 만들기
+
+**층 호환**(layer compatibility) 개념은 모든 층이 특정 크기의 입력 텐서만 받고 특정 크기의 출력 텐서만 반환한다는 것이다.
+
+케라스를 사용할 때 대부분의 경우 모델에 추가하는 층은 앞선 층의 출력 크기에 맞도록 입력 크기가 동적으로 만들어진다.
+
+Layer 클래스의 `__call__()` 메소드는 자동 크기 추론을 위해 층이 처음 본 입력 크기를 매개변수로 받는다.
+
+### 3.6.2 층에서 모델로
+
+케라스의 `Model` 클래스는 딥러닝 모델로, 층으로 구성된 그래프이다. 이전에 본 `Sequential` 모델은 단순히 층을 쌓은 것으로 하나의 입력을 하나의 출력으로 매핑한다. 이외에도 자주 등장하는 네트워크는 다음과 같은 것들이 있다.
+
+- 2개의 가지(two-batch)를 가진 네트워크
+- 멀티헤드(multihead) 네트워크
+- 잔차 연결(residual connection)
+
+네트워크 구조(topology)는 꽤 복잡할 수 있다. 케라스에서는 `Model` 클래스의 서브클래스를 직접 만들거나 함수형 API를 사용해 이러한 모델들을 만들 수 있다.
+
+모델의 구조는 **가설 공간**(hypothesis space)을 정의한다. 머신 러닝이란, 사전에 정의된 **가능성 있는 공간**(space of possibility) 안에서 피드백 신호의 도움을 받아 입력 데이터의 유용한 표현을 찾는 것이다. 네트워크 구조를 선택하면 입력 데이터를 출력 데이터로 매핑하는 일련의 텐서 연산들로 가설 공간이 제한된다.
+
+### 3.6.3 '컴파일' 단계: 학습 과정 설정
+
+모델 구조 정의 후엔 다음의 세 가지를 선택해야 한다.
+
+- **손실 함수**(loss function) 또는 **목적 함수**(objective function): 훈련 과정에서 최소화해야 할 값, 현재 작업에 대한 성공의 척도
+- **옵티마이저**(optimizer): 손실 함수를 기반으로 네트워크의 업데이트 방향을 결정, 특정 종류의 확률적 경사 하강법(SGD)으로 구현
+- **측정 지표**(metric): 분류의 정확도 등 훈련과 검증 과정에서 모니터링할 성공의 척도, 손실과 달리 훈련이 최적화하지 않으므로 미분 불가능해도 되는 것
+
+위 세 가지를 선택한 이후엔 모델에 내장된 `compile()`과 `fit()` 메소드를 사용해 모델 훈련을 시작할 수 있다. 또는 사용자 정의 루프를 만들 수도 있다.
+
+`compile()` 메소드는 훈련 과정을 설정한다. 매개변수로는 `optimizer`, `loss`, `metrics`(리스트)가 있다.
+
+```
+# 선형 분류기 정의
+model = keras.Sequential([keras.layers.Dense(1)])
+
+model.compile(optimizer="rmsprop",          # 옵티마이저 지정
+              loss="mean_squared_error",    # 손실 함수 지정
+              metrics=["accuracy"])         # 측정 지표 지정
+```
+
+**옵티마이저**
+- SGD(모멘텀 선택 가능)
+- RMSprop
+- Adam
+- Adagrad
+- ...
+
+**손실 함수**
+- CategoricalCrossentropy
+- SparseCategoricalCrossentropy
+- BinaryCrossentropy
+- MeanSquaredError
+- KLDivergence
+- ConsineSimilarity
+- ...
+
+**측정 지표**
+- CategoricalAccuracy
+- SparseCategoricalAccuracy
+- BinaryAccuarcy
+- AUC
+- Precision
+- Recall
+- ...
+
+### 3.6.4 손실 함수 선택하기
+
+네트워크가 손실을 최소화하기 위한 편법을 사용할 수 있기 때문에 문제에 적합한 손실 함수를 선택하는 것은 중요하다. 예를 들어 2개의 클래스가 있는 분류 문제에는 이진 크로스엔트로피(binary crossentropy), 여러 개의 클래스가 있는 분류 문제에는 범주형 크로스엔트로피(catogorical crossentropy)를 사용하는 것 등이다.
+
+### 3.6.5 fit() 메소드 이해하기
+
+`fit()` 메소드는 `compile()` 다음에 호출되어 훈련 루프를 구현한다. 다음과 같은 매개변수가 있다.
+
+- **훈련할 데이터(입력과 타깃)**: 일반적으로 넘파이 배열이나 텐서플로 Dataset 객체로 전달한다.
+- **훈련할 에포크**(epoch) **횟수**: 전달한 데이터에서 훈련 루프를 몇 번이나 반복할지 알려준다.
+- **미니 배치 경사 하강법의 각 에포크에서 사용할 배치 크기**: 가중치 업데이트 단계에서 그레이디언트를 계산하는 데 사용될 훈련 샘플 개수를 의미한다.
+
+**코드 3-23. 넘파이 데이터로 fit() 메소드 호출하기**
+```
+history = model.fit(
+    inputs,
+    targets,
+    epochs=5,
+    batch_size=128
+)
+```
+
+`fit()` 메소드는 `History` 객체를 반환한다. 이 객체는 딕셔너리인 `history` 속성을 가지고 있다. 이 딕셔너리는 `loss` 또는 특정 측정 지표의 이름의 키와 각 에포크 값의 리스트를 매핑한다.
+
+### 3.6.6 검증 데이터에서 손실과 측정 지표 모니터링하기
+
+머신 러닝의 목표는 범용적으로 잘 동작하는 모델을 얻는 것이다. 새로운 데이터에 모델이 어떻게 동작하는지 예상하기 위해 훈련 데이터의 일부를 **검증 데이터**(validation data)로 떼어 놓는 것이 표준적인 방법이다. 이 데이터를 사용하여 손실과 측정 지표를 계산할 수 있다. 이를 위해 `fit()` 메소드의 `validation_data` 매개변수를 사용한다. 검증 데이터는 훈련 데이터처럼 전달할 수 있다.
+
+**코드 3-24. validation_data 매개변수 사용하기**
+```
+model = keras.Sequential([keras.layers.Dense(1)])
+model.compile(optimizer=keras.optimizers.RMSprop(learning_rate=0.1),
+              loss=keras.losses.MeanSquaredError(),
+              metrics=[keras.metrics.BinaryAccuracy()])
+
+indices_permutation = np.random.permutation(len(inputs))
+shuffled_inputs = inputs[indices_permutation]
+shuffled_targets = targets[indices_permutation]
+
+num_validation_samples = int(0.3 * len(inputs))
+val_inputs = shuffled_inputs[:num_validation_samples]
+val_targets = shuffled_targets[:num_validation_samples]
+training_inputs = shuffled_inputs[num_validation_samples:]
+training_targets = shuffled_targets[num_validation_samples:]
+
+model.fit(
+    training_inputs,
+    training_targets,
+    epochs=5,
+    batch_size=16,
+    validation_data=(val_inputs, val_targets)
+)
+```
+
+검증 데이터의 손실 값을 검증 손실(validation loss)이라고 한다. 검증 목적은 모델이 학습한 것이 실제 데이터에 유용한지 모니터링하는 것이므로 훈련 데이터와 검증 데이터는 철저히 분리되어야 한다.
+
+훈련이 끝난 후 검증 손실과 측정 지표를 계산하고 싶다면 `evaluate()` 메소드를 사용한다.
+
+```
+loss_and_metrics = model.evaluate(val_inputs, val_targets, batch_size=128)
+```
+
+스칼라 값의 리스트가 반환되는데, 첫 번째 항목이 검증 손실이고 두 번째 항목이 검증 데이터에 대한 측정 지표 값이다.
+
+### 3.6.7 추론: 훈련한 모델 사용하기
+
+모델을 훈련하고 나면 이 모델을 사용하여 새로운 데이터에서 예측을 만들게 된다. 이를 **추론**(inference)이라고 한다. 간단한 방법은 모델의 `__call__()` 메소드를 호출하는 것이다.
+
+```
+predictions = model(new_inputs)
+```
+
+이 방법은 모든 입력을 한 번에 처리하기 때문에 데이터가 많다면 가능하지 않을 수 있다.
+
+따라서 `predict()` 메소드를 사용해 작은 배치로 데이터를 순환해 넘파이 배열로 예측을 반환받을 수 있다. `__call__()` 메소드와 달리 텐서플로 Dataset 객체도 처리할 수 있다.
+
+```
+predictions = model.predict(new_inputs, batch_size=128)
+```
+
+반환되는 배열에는 모든 입력 데이터 각각에 대한 예측이 담겨 있다.
+
+## 3.7 요약
+
+- 텐서플로는 CPU, GPU, TPU에서 실행할 수 있는 업계 최강의 수치 컴퓨팅 프레임워크이다. 미분 가능한 어떤 표현식의 그레이디언트도 자동으로 계산할 수 있다. 여러 가지 장치에 배포할 수 있고, 자바스크립트를 포함하여 다양한 종류의 런타임에 맞도록 프로그램을 변환할 수 있다.
+- 케라스는 텐서플로에서 딥러닝을 수행하기 위한 표준 API로, 이 책에서 사용하는 라이브러리이다.
+- 텐서플로의 핵심 객체는 텐서, 변수, 텐서 연산, 그레이디언트 테이프이다.
+- 케라스의 핵심 클래스는 Layer이다. 층은 가중치와 연산을 캡슐화한다. 이런 층들을 조합하여 모델을 만든다.
+- 모델을 훈련하기 전에 옵티마이저, 손실 함수, 측정 지표를 선택하여 `model.compile()` 메소드에 지정해야 한다.
+- 미니 배치 경사 하강법을 실행하는 `fit()` 메소드로 모델을 훈련할 수 있다. 또한, 이 메소드를 사용하여 모델의 훈련 과정에서 본 적 없는 검증 데이터에 대한 손실과 측정 지표를 모니터링할 수 있다.
+- 모델을 훈련하고 나면 `model.predict()` 메소드를 사용하여 새로운 입력에 대한 예측을 만든다.
