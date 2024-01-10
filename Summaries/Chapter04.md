@@ -1032,6 +1032,382 @@ model.evaluate(x_test, y_test)
 
 결과는 [0.972261905670166, 0.7974176406860352]으로 예제 모델에 비해 낮은 손실, 높은 정확도를 보인다.
 
+다음으로 128개의 유닛을 사용하여 층을 구성했을 때의 결과를 살펴본다.
 
+```
+model = keras.Sequential([
+    layers.Dense(128, activation="relu"),
+    layers.Dense(128, activation="relu"),
+    layers.Dense(46, activation="softmax")
+])
+```
+
+![훈련과 검증 손실](image-32.png)
+
+![훈련과 검증 정확도](image-33.png)
+
+적절한 에포크 횟수는 8회로 확인된다. 모델을 재훈련하고 테스트 데이터를 평가한다.
+
+```
+# 모델 재훈련 및 테스트 데이터 평가
+model = keras.Sequential([
+    layers.Dense(128, activation="relu"),
+    layers.Dense(128, activation="relu"),
+    layers.Dense(46, activation="softmax")
+])
+
+model.compile(optimizer="rmsprop",
+              loss="categorical_crossentropy",
+              metrics=["accuracy"])
+
+model.fit(x_train,
+          y_train,
+          epochs=8,
+          batch_size=512)
+
+model.evaluate(x_test, y_test)
+```
+
+결과는 [0.9020348787307739, 0.8005343079566956]으로 예제 모델보다 낮은 손실, 높은 정확도를 보인다.
 
 - **1개나 3개의 중간 층을 사용해 보아라.**
+
+기본적인 모델의 구조는 예제와 동일하게 하면서 검증 손실, 검증 정확도 및 재훈련 이후 테스트 데이터에 대한 평가를 측정해 보겠다.
+
+먼저 1개의 중간 층을 사용했을 때의 결과이다.
+
+```
+model = keras.Sequential([
+    layers.Dense(64, activation="relu"),
+    layers.Dense(46, activation="softmax")
+])
+```
+
+![훈련 및 검증 손실](image-34.png)
+
+![훈련 및 검증 정확도](image-35.png)
+
+적절한 에포크 횟수는 10회로 확인된다. 다시 훈련한 이후 테스트 데이터를 평가해 보겠다.
+
+```
+# 모델 재훈련 및 테스트 데이터 평가
+model = keras.Sequential([
+    layers.Dense(64, activation="relu"),
+    layers.Dense(46, activation="softmax")
+])
+
+model.compile(optimizer="rmsprop",
+              loss="categorical_crossentropy",
+              metrics=["accuracy"])
+
+model.fit(x_train,
+          y_train,
+          epochs=10,
+          batch_size=512)
+
+model.evaluate(x_test, y_test)
+```
+
+결과는 [0.8486769795417786, 0.8036509156227112]으로 예제 모델보다 낮은 손실, 높은 정확도를 보인다.
+
+다음으로 3개의 중간 층을 두었을 때의 결과를 확인해 보겠다.
+
+```
+model = keras.Sequential([
+    layers.Dense(64, activation="relu"),
+    layers.Dense(64, activation="relu"),
+    layers.Dense(64, activation="relu"),
+    layers.Dense(46, activation="softmax")
+])
+```
+
+![훈련과 검증 손실](image-36.png)
+
+![훈련과 검증 정확도](image-37.png)
+
+적절한 에포크 횟수는 10회로 확인된다. 모델을 재훈련한 후 테스트 데이터를 평가한다.
+
+```
+# 모델 재훈련 및 테스트 데이터 평가
+model = keras.Sequential([
+    layers.Dense(64, activation="relu"),
+    layers.Dense(64, activation="relu"),
+    layers.Dense(64, activation="relu"),
+    layers.Dense(46, activation="softmax")
+])
+
+model.compile(optimizer="rmsprop",
+              loss="categorical_crossentropy",
+              metrics=["accuracy"])
+
+model.fit(x_train,
+          y_train,
+          epochs=10,
+          batch_size=512)
+
+model.evaluate(x_test, y_test)
+```
+
+결과는 [1.135304570198059, 0.7626892328262329]으로 예제 모델에 비해 낮은 손실, 높은 정확도를 보인다.
+
+결과적으로 모든 실험에서 예제 모델보다 우수한 모델이 생성되었다.
+
+### 4.2.9 정리
+
+- N개의 클래스로 데이터 포인트를 분류하려면 모델의 마지막 Dense 층의 크기는 N이어야 한다.
+- 단일 레이블, 다중 분류 문제에서는 N개의 클래스에 대한 확률 분포를 출력하기 위해 softmax 활성화 함수를 사용해야 한다.
+- 단일 레이블, 다중 분류 문제에는 항상 범주형 크로스엔트로피 손실 함수를 사용해야 한다. 이 함수는 모델이 출력한 확률 분포와 타깃 확률 분포 사이의 거리를 최소화한다.
+- 다중 분류에서 레이블을 다루는 방법에는 두 가지가 있다.
+  - 레이블을 범주형 인코딩(또는 원-핫 인코딩)으로 인코딩하고 categorical_crossentropy 손실 함수를 사용한다.
+  - 레이블을 정수로 인코딩하고 sparse_categorical_crossentropy 손실 함수를 사용한다.
+- 많은 수의 범주를 분류할 때 중간 층의 크기가 너무 작아 모델에 정보 병목이 생기는 일이 없도록 해야 한다.
+
+
+
+## 4.3 주택 가격 예측: 회귀 문제
+
+**회귀**(regression)는 분류처럼 개별적인 레이블을 예측하기보단 연속적인 값을 예측하는 머신 러닝 문제이다. 참고로 **로지스틱 회귀**(logistic regression) 알고리즘은 이름만 회귀일 뿐 분류 알고리즘에 속한다.
+
+### 4.3.1 보스턴 주택 가격 데이터셋
+
+이 절에서는 1970년 중반 보스턴 외곽 지역의 범죄율, 지방세율 등의 데이터가 주어졌을 때 주택 가격의 중간 값을 예측해볼 것이다. 사용할 데이터셋은 데이터 포인트가 506개로 비교적 적은 개수이고, 404개는 훈련 샘플, 102개는 테스트 샘플로 나뉘어진다. 또한 입력 데이터에 있는 **특성**(feature)의 스케일이 서로 다르다. 어떤 값은 0과 1 사이의 비율을 나타내고, 어떤 값은 1과 12 사이의 값을 가지거나 1과 100 사이의 값을 가지기도 한다.
+
+**코드 4-23. 보스턴 주택 데이터셋 로드하기**
+```
+from tensorflow.keras.datasets import boston_housing
+
+(train_data, train_targets), (test_data, test_targets) = (boston_housing.load_data())
+```
+
+```
+>>> print(train_data.shape, test_data.shape)
+(404, 13) (102, 13)
+```
+
+```
+>>> print(train_targets)
+[15.2 42.3 50.  21.1 17.7 18.5 11.3 15.6 15.6 14.4 12.1 17.9 23.1 19.9
+...
+```
+
+### 4.3.2 데이터 준비
+
+상이한 스케일을 가진 값을 신경망에 주입하면 문제가 된다. 이런 데이터를 다룰 때는 특성별로 정규화를 하는 것이 대표적인 방법이다. 각 특성에 평균을 빼고 표준 편차로 나누면 데이터 값의 중앙이 0으로 맞추어지고 표준 편차가 1이 된다.
+
+**코드 4-24. 데이터 정규화하기**
+```
+mean = train_data.mean(axis = 0)
+train_data -= mean
+std = train_data.std(axis = 0)
+train_data /= std
+
+test_data -= mean
+test_data /= std
+```
+
+테스트 데이터도 훈련 데이터에서 계산한 값을 기반으로 정규화한 점에 주목한다. 머신 러닝 작업 과정에선 절대로 테스트 데이터에서 계산한 값을 사용해선 안 된다.
+
+### 4.3.3 모델 구성
+
+일반적으로 훈련 데이터가 작으면 과대 적합이 쉽게 일어나므로 작은 모델을 사용하는 것이 이를 피하는 한 방법으로 권장된다. 따라서 64개의 유닛을 가진 2개의 중간 층으로 작은 모델을 구성하여 사용한다.
+
+**코드 4-25. 모델 정의하기**
+```
+from tensorflow import keras
+from tensorflow.keras import layers
+
+def build_model():
+    model = keras.Sequential([
+        layers.Dense(64, activation="relu"),
+        layers.Dense(64, activation="relu"),
+        layers.Dense(1)
+    ])
+    model.compile(optimizer="rmsprop", loss="mse", metrics=["mae"])
+    return model
+```
+
+하나의 연속적인 값을 예측하는 회귀인 스칼라 회귀에선 전형적으로 이 모델의 마지막 층처럼 활성화 함수가 없고 하나의 유닛을 가지는 층을 배치하게 된다. 이를 선형 층이라고 부른다. 선형 층은 어떠한 범위의 값이든 예측할 수 있도록 자유롭게 학습된다.
+
+`mse` 손실 함수는 **평균 제곱 오차**(mean squared error)의 약어로 예측과 타깃 사이 거리의 제곱이다. 회귀 문제에서 널리 사용된다.
+
+훈련 모니터링을 위해 측정 지표로 **평균 절대 오차**(Mean Absolute Error, MAE)를 사용한다. 이는 예측과 타깃 사이 거리의 절댓값이다. 예를 들어 이 예제에서 MAE가 0.5라면 예측이 평균적으로 500달러 정도 차이가 난다는 의미이다.
+
+### 4.3.4 K-겹 검증을 사용한 훈련 검증
+
+에포크 횟수와 같은 매개변수들을 조정하면서 모델을 평가하기 위해 데이터를 훈련 세트와 검증 세트로 분리한다. 데이터 포인트가 적기 때문에 검증 세트도 약 100개의 샘플로 매우 작아진다. 이러한 경우엔 검증 세트 분할에 대한 검증 점수의 **분산**(variance)이 높기 때문에 훈련 세트와 검증 세트가 어떻게 분리되었느냐에 따라 훈련 결과가 크게 달라질 수 있다.
+
+이러한 상황에서는 **K-겹 교차 검증**(K-fold cross-validation)을 사용하는 것이 가장 좋은 방법이다. 데이터를 K개의 분할(폴드(fold))로 나누고 K개의 모델을 각각 만들어 K - 1개의 분할에서 훈련하고 나머지 분할에서 평가하는 방법이다. 모델의 검증 점수는 K개의 검증 점수의 평균이 된다.
+
+**코드 4-26. K-겹 검증하기**
+```
+k = 4
+num_val_samples = len(train_data) // k
+num_epochs = 100
+all_scores = []
+
+for i in range(k):
+    print(f"#{i}번째 폴드 처리 중")
+    
+    val_data = train_data[i * num_val_samples : (i + 1) * num_val_samples]
+    val_targets = train_targets[i * num_val_samples : (i + 1) * num_val_samples]
+    partial_train_data = np.concatenate(
+        [train_data[: i * num_val_samples],
+         train_data[(i + 1) * num_val_samples :]],
+        axis=0
+    )
+    partial_train_targets = np.concatenate(
+        [train_targets[: i * num_val_samples],
+         train_targets[(i + 1) * num_val_samples :]],
+        axis=0
+    )
+    
+    model = build_model()
+    model.fit(partial_train_data,
+            partial_train_targets,
+            epochs=num_epochs,
+            batch_size=16,
+            verbose=0)              # verbose=0이면 훈련 과정이 출력되지 않는다
+    # 검증 세트로 모델을 평가한다
+    val_mse, val_mae = model.evaluate(val_data, val_targets, verbose=0)
+    all_scores.append(val_mae)
+```
+
+```
+>>> all_scores
+[1.9447104930877686,
+ 2.5547187328338623,
+ 2.6054697036743164,
+ 2.2518203258514404]
+>>> np.mean(all_scores)
+2.339179813861847
+```
+
+각 폴드에서의 점수 차이가 크므로 평균 값(약 2.3)이 훨씬 신뢰할 만하다.
+
+다음으로는 이 모델을 조금 더 오래 500 에포크 동안 훈련한다. 각 에포크마다 모델이 얼마나 개선되는지 기록하기 위해 훈련 루프를 수정하여 에포크마다의 각 폴드 검증 점수를 로그에 저장한다.
+
+**코드 4-27. 각 폴드의 검증 점수 저장하기**
+```
+num_epochs = 500
+all_mae_histories = []
+
+for i in range(k):
+    print(f"#{i}번째 폴드 처리 중")
+    
+    val_data = train_data[i * num_val_samples : (i + 1) * num_val_samples]
+    val_targets = train_targets[i * num_val_samples : (i + 1) * num_val_samples]
+    partial_train_data = np.concatenate(
+        [train_data[: i * num_val_samples],
+         train_data[(i + 1) * num_val_samples :]],
+        axis=0
+    )
+    partial_train_targets = np.concatenate(
+        [train_targets[: i * num_val_samples],
+         train_targets[(i + 1) * num_val_samples :]],
+        axis=0
+    )
+    
+    model = build_model()
+    history = model.fit(partial_train_data,
+                        partial_train_targets,
+                        validation_data=(val_data, val_targets),
+                        epochs=num_epochs,
+                        batch_size=16,
+                        verbose=0)
+    mae_history = history.history["val_mae"]
+    all_mae_histories.append(mae_history)
+```
+
+그 다음 모든 폴드에 대해 MAE 점수 평균을 계산한다.
+
+**코드 4-28. K-겹 검증 점수 평균 기록하기**
+```
+average_mae_history = np.zeros((num_epochs, ))
+for x in all_mae_histories:
+    for i in range(num_epochs):
+        average_mae_history[i] += x[i]
+average_mae_history /= len(all_mae_histories)
+```
+
+그래프로 나타낸다.
+
+**코드 4-29. 검증 점수 그래프 그리기**
+```
+import matplotlib.pyplot as plt
+
+plt.plot(range(1, len(average_mae_history) + 1), average_mae_history)
+plt.xlabel("Epochs")
+plt.ylabel("Validation MAE")
+plt.show()
+```
+
+![에포크별 검증 MAE](image-38.png)
+
+이 그래프는 범위가 크기 때문에 값의 차이를 관찰하기 어렵다. 나머지 곡선 부분과 스케일이 크게 다른 처음 10개의 데이터 포인트를 제외하고 다시 그래프를 그린다.
+
+**코드 4-30. 처음 10개의 데이터 포인트를 제외한 검증 점수 그래프 그리기**
+```
+truncated_mae_history = average_mae_history[10:]
+plt.plot(range(1, len(truncated_mae_history) + 1), truncated_mae_history)
+plt.xlabel("Epochs")
+plt.ylabel("Validation MAE")
+plt.show()
+```
+
+![처음 10개의 데이터 포인트를 제외한 에포크별 검증 MAE](image-39.png)
+
+그래프에서 확인할 수 있듯이 검증 MAE가 약 140~150번째 에포크 이후에 감소를 멈추고 과대 적합이 시작된다.
+
+모델의 여러 매개변수에 대한 튜닝이 끝나면 모든 훈련 데이터를 사용하고 최상의 매개변수로 최종 모델을 훈련시킨다. 그 다음 테스트 데이터로 성능을 확인할 수 있다.
+
+**코드 4-31. 최종 모델 훈련하기**
+```
+model = build_model()
+model.fit(train_data,
+          train_targets,
+          epochs=np.argmin(average_mae_history),
+          batch_size=16,
+          verbose=0)
+
+test_mse_score, test_mae_score = model.evaluate(test_data, test_targets)
+```
+
+```
+>>> test_mae_score
+2.341470956802368
+```
+
+최종 모델도 비슷한 성능을 보인다. 오히려 첫 번째 모델이 성능은 더 우수한 것으로 확인된다.
+
+### 4.3.5 새로운 데이터에 대해 예측하기
+
+스칼라 회귀 모델의 `predict()` 메소드를 사용하여 새로운 샘플의 가격을 1,000달러 단위로 예측할 수 있다.
+
+```
+>>> predictions = model.predict(test_data)
+>>> predictions[0]
+array([8.829581], dtype=float32)
+```
+
+테스트 세트의 첫 번째 주택 가격은 약 8,800달러로 예상된다.
+
+### 4.3.6 정리
+
+- 회귀는 분류에서 사용했던 것과는 다른 손실 함수를 사용한다. 평균 제곱 오차(MSE)는 회귀에서 자주 사용되는 손실 함수이다.
+- 회귀에서 사용되는 평가 지표는 분류와 다르다. 정확도 개념은 회귀에 적용될 수 없으며, 일반적으로 평균 절대 오차(MAE)를 사용한다.
+- 입력 데이터의 특성이 서로 다른 범위를 가지면 전처리 단계에서 각 특성을 개별적으로 스케일링해야 한다.
+- 가용 데이터 개수가 적다면 K-겹 검증을 사용하는 것이 신뢰할 수 있는 모델 평가 방법이다.
+- 가용 데이터 개수가 적다면 과대 적합을 피하기 위해 일반적으로 중간 층의 수를 1~2개로 줄여 작은 모델을 사용하는 것이 좋다.
+
+
+
+## 4.4 요약
+
+- 벡터 데이터를 사용하는 가장 일반적인 머신 러닝 작업은 이진 분류, 다중 분류, 스칼라 회귀이다.
+  - 회귀에서 사용하는 손실 함수와 평가 지표는 분류와 다르다.
+- 보통 원본 데이터를 신경망에 주입하기 전에 전처리해야 한다.
+- 데이터에 범위가 다른 특성이 있다면 전처리 단계에서 각 특성을 독립적으로 스케일링해야 한다.
+- 훈련이 진행됨에 따라 신경망의 과대 적합이 시작되고 새로운 데이터에 대해 나쁜 결과를 얻게 된다.
+- 훈련 데이터가 많지 않으면 과대 적합을 피하기 위해 1개 또는 2개의 중간 층을 가진 모델을 사용한다.
+- 데이터가 많은 범주로 나뉘어 있을 때 중간 층이 너무 작으면 정보의 병목이 생길 수 있다.
+- 데이터 양이 적을 때는 K-겹 검증이 신뢰할 수 있는 모델 평가를 도와준다.
