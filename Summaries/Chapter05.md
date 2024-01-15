@@ -516,3 +516,212 @@ model.compile(optimizer="rmsprop",
 
 history_original = model.fit(train_data, train_labels, epochs=20, batch_size=512, validation_split=0.4)
 ```
+
+이를 더 작은 모델로 바꾸어보자.
+
+**코드 5-11. 작은 용량의 모델**
+```
+model = keras.Sequential([
+    layers.Dense(4, activation="relu"),
+    layers.Dense(4, activation="relu"),
+    layers.Dense(1, activation="sigmoid")
+])
+
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+
+history_small_model = model.fit(
+    train_data, train_labels,
+    epochs=20, batch_size=512, validation_split=0.4
+)
+```
+
+```
+original_val_loss = history_original.history["val_loss"]
+small_val_loss = history_small_model.history["val_loss"]
+epochs = range(1, 21)
+
+plt.plot(epochs, original_val_loss, "b-", label="Original model's validation loss")
+plt.plot(epochs, small_val_loss, "b--", label="Small model's validation loss")
+plt.title("Validation loss of an original model and a smaller model")
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.legend()
+plt.show()
+```
+
+![IMDB 리뷰 분류에 대한 원본 모델 vs 작은 용량의 모델](image-43.png)
+
+작은 모델의 과대적합이 더 늦게 시작되었따.
+
+이번에는 문제에 필요한 것보다 훨씬 더 많은 용량을 가진 네트워크와 비교해 보겠다. 학습 대상에 대해 과도하게 많은 파라미터를 가진 모델을 만드는 것이 표준이지만 기억 용량이 너무 많을 수 있다. 이럴 경우 모델이 즉시 과대적합되고 검증 손실 곡선의 분산이 크게 나타난다. 검증 지표가 고르지 않다는 것은 신뢰할 수 있는 검증 과정을 사용하지 않는다는 징후일 수 있다.
+
+**코드 5-12. 큰 용량의 모델**
+```
+model = keras.Sequential([
+    layers.Dense(512, activation="relu"),
+    layers.Dense(512, activation="relu"),
+    layers.Dense(1, activation="sigmoid")
+])
+
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+
+history_large_model = model.fit(
+    train_data, train_labels,
+    epochs=20, batch_size=512, validation_split=0.4
+)
+```
+
+```
+original_val_loss = history_original.history["val_loss"]
+large_val_loss = history_large_model.history["val_loss"]
+epochs = range(1, 21)
+
+plt.plot(epochs, original_val_loss, "b-", label="Original model's validation loss")
+plt.plot(epochs, large_val_loss, "b--", label="Large model's validation loss")
+plt.title("Validation loss of an original model and a larger model")
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.legend()
+plt.show()
+```
+
+![IMDB 리뷰 분류에 대한 원본 모델 vs 큰 용량의 모델](image-44.png)
+
+용량의 큰 모델의 과대적합이 더 빨리 발생하고 검증 손실도 매우 불안정한 양상을 띠고 있음을 확인할 수 있다. 용량이 큰 모델일수록 훈련 데이터를 빠르게 모델링할 수 있고, 그만큼 과대적합에 민감해진다.
+
+#### 가중치 규제 추가
+
+**오캄의 면도날**(Occam's razor) 이론은 어떤 것에 대한 여러 가지 설명이 있다면 그들 중 더 적은 가정이 필요한 간단한 설명이 옳을 것이라고 말한다. 이 개념은 신경망 모델에도 적용된다. 어떤 훈련 데이터와 네트워크 구조가 주어졌을 때 데이터를 설명할 수 있는 가중치 값의 집합(모델)은 여러 개이다. 간단한 모델이 복잡한 모델보다 덜 과대적합될 가능성이 높다.
+
+간단한 모델이란 파라미터 값 분포의 엔트로피가 적거나 적은 수의 파라미터를 가진 모델이다. 그러므로 과대적합을 완화하기 위해 일반적으로 모델의 복잡도에 제한을 두어 가중치가 작은 값을 가지도록 강제할 수 있다. 이로 인해 가중치 값의 분포가 더 균일하게 되는 것을 **가중치 규제**(weight regularization)이라고 한다. 모델의 손실 함수에 큰 가중치에 따른 비용을 추가한다. 이에는 두 가지 형태의 비용이 있다.
+
+- **L1 규제**: 가중치의 절댓값에 비례하는 비용이 추가된다(가중치의 **L1 노름**(norm)).
+- **L2 규제**: 가중치의 제곱에 비례하는 비용이 추가된다(가중치의 **L2 노름**). 신경망에서 **가중치 감쇠**(weight decay)라고도 부른다.
+
+케라스에서는 가중치 규제 객체를 층의 키워드 매개변수로 전달하여 추가할 수 있다. 초기 영화 리뷰 분류 모델에 L2 가중치 규제를 추가해 보자.
+
+**코드 5-13. 모델에 L2 가중치 규제 추가하기**
+```
+from tensorflow.keras import regularizers
+
+model = keras.Sequential([
+    layers.Dense(16,
+                 kernel_regularizer=regularizers.l2(0.002),
+                 activation="relu"),
+    layers.Dense(16,
+                 kernel_regularizer=regularizers.l2(0.002),
+                 activation="relu"),
+    layers.Dense(1, activation="sigmoid")
+])
+
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+
+history_l2_reg = model.fit(
+    train_data, train_labels,
+    epochs=20, batch_size=512, validation_split=0.4
+)
+```
+
+코드에서 L2 가중치 규제에 0.002라는 값을 전달한 것은 가중치 행렬의 모든 원소를 제곱한 뒤 0.002를 곱해 모델의 전체 손실에 더해진다는 의미이다. 이 페널티(penalty) 항은 훈련할 때만 추가된다. 그러므로 이 모델의 손실은 테스트 시보다 훈련 시에 더 높을 것이다.
+
+```
+original_val_loss = history_original.history["val_loss"]
+l2_val_loss = history_l2_reg.history["val_loss"]
+epochs = range(1, 21)
+
+plt.plot(epochs, original_val_loss, "b-", label="Original model's validation loss")
+plt.plot(epochs, l2_val_loss, "b--", label="L2 regularized model's validation loss")
+plt.title("Validation loss of an original model and a L2 regularized model")
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.legend()
+plt.show()
+```
+
+![검증 손실에 대한 L2 가중치 규제의 효과](image-45.png)
+
+L2 규제를 가진 모델이 훨씬 더 과대적합에 잘 견디고 있음을 확인할 수 있다.
+
+케라스에서는 L2 규제 대신에 다음 가중치 규제 중 하나를 사용할 수 있다.
+
+**코드 5-14. 케라스에서 사용할 수 있는 가중치 규제**
+```
+from tensorflow.keras import regularizers
+
+regularizers.l1(0.001)                  # L1 가중치 규제
+regularizers.l1_l2(l1=0.001, l2=0.001)  # L1, L2 가중치 규제 병행
+```
+
+가중치 규제는 일반적으로 작은 딥러닝 모델에서 사용된다. 대규모 딥러닝 모델은 파라미터가 너무 많기 때문에 가중치 값을 제약하는 것이 모델 용량과 일반화에 큰 영향을 미치지 않는 경향이 있다.
+
+#### 드롭아웃 추가
+
+**드롭아웃**(dropout)은 대규모 딥러닝 모델에서 사용될 수 있는 규제 방식이다. 신경망을 위해 사용되는 기법들 중 가장 효과적이고 널리 사용된다. 모델 층에 드롭아웃을 적용하면 훈련하는 동안 무작위로 층의 출력 특성을 일부 (0으로 만들어) 제외시킨다. 드롭아웃 비율은 이 과정에서 0이 될 특성의 비율로 보통 0.2에서 0.5 사이로 지정된다. 테스트 단계에선 어떤 유닛도 드롭아웃되지 않는 대신 층의 출력이 드롭아웃 비율에 맞추어 줄어든다.
+
+드롭아웃을 고안해낸 제프리 힌튼은 이 방식이 뉴런들의 부정한 협업을 깨뜨린다고 설명했다. 만약 드롭아웃(노이즈)이 없다면 모델이 중요하지 않은 우연한 패턴을 기억하고 부정한 협업을 하게 될 것이다.
+
+케라스에서는 층의 출력 바로 뒤에 `Dropout` 층을 추가하여 모델에 드롭아웃을 적용할 수 있다. IMDB 모델에 2개의 `Dropout` 층을 추가하고 과대적합을 얼마나 줄여 주는지 확인해 보자.
+
+**코드 5-15. IMDB 모델에 드롭아웃 추가하기**
+```
+model = keras.Sequential([
+    layers.Dense(16, activation="relu"),
+    layers.Dropout(0.5),
+    layers.Dense(16, activation="relu"),
+    layers.Dropout(0.5),
+    layers.Dense(1, activation="sigmoid")
+])
+
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+
+history_dropout = model.fit(
+    train_data, train_labels,
+    epochs=20, batch_size=512, validation_split=0.4
+)
+```
+
+```
+original_val_loss = history_original.history["val_loss"]
+dropout_val_loss = history_dropout.history["val_loss"]
+epochs = range(1, 21)
+
+plt.plot(epochs, original_val_loss, "b-", label="Original model's validation loss")
+plt.plot(epochs, dropout_val_loss, "b--", label="Dropout model's validation loss")
+plt.title("Validation loss of an original model and a dropout model")
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.legend()
+plt.show()
+```
+
+![검증 손실에 대한 드롭아웃의 효과](image-46.png)
+
+기본 모델보다 검증 손실이 낮을뿐만 아니라 과대적합도 더 늦게 발생하는 것을 확인할 수 있다.
+
+정리하자면, 신경망에서 일반화 성능을 극대화하고 과대적합을 방지하기 위해 가장 널리 사용하는 방법은 다음과 같다.
+
+- 훈련 데이터를 더 수집한다. 또는 양질의 데이터를 모은다.
+- 양질의 특성을 개발한다.
+- 네트워크의 용량을 감소시킨다.
+- 작은 모델을 만들기 위해 가중치 규제를 추가한다.
+- 드롭아웃을 추가한다.
+
+
+
+## 5.5 요약
+
+- 머신 러닝 모델의 목적은 이전에 본 적 없는 입력에서 정확하게 동작하는 일반화이다.
+- 심층 신경망은 훈련 샘플 사이를 성공적으로 보간할 수 있는 모수 모델(parametric model)을 훈련하여 일반화를 달성한다. 이런 모델은 훈련 데이터의 잠재 매니폴드를 학습했다고 말할 수 있다. 이것이 딥러닝 모델이 훈련 도중 본 샘플에 매우 가까운 입력만 이해할 수 있는 이유이다.
+- 머신 러닝의 근본적인 문제는 최적화와 일반화 사이의 줄다리기이다. 일반화를 달성하기 위해 우선 훈련 데이터에 잘 맞추어야 하지만, 훈련 데이터에 대한 성능 향상은 곧이어 불가피하게 일반화를 저해한다. 딥러닝의 모든 모범 사례는 이러한 긴장 관계를 관리하는 것이다.
+- 딥러닝 모델의 일반화 능력은 데이터의 잠재 매니폴드를 근사하는 방법을 학습하고 보간을 통해 새로운 입력을 이해할 수 있다는 사실에서 비롯된다.
+- 모델을 개발하는 동안 모델의 일반화 능력을 정확히 평가할 수 있어야 한다. 간단한 홀드아웃 검증부터 K-겹 교차 검증과 셔플링을 사용한 반복 K-겹 교차 검증까지 다양한 평가 방법을 사용할 수 있다. 검증 데이터에서 모델로 정보가 누출될 수 있기 때문에 최종 모델 평가를 위해 완전히 별개의 테스트 세트를 떼어 놓아야 한다.
+- 모델을 구축하기 시작할 때는 먼저 약간의 일반화 능력을 가지고 과대적합할 수 있는 모델을 만드는 것이 목표이다. 이를 위한 모범 사례는 학습률과 배치 크기를 튜닝하고, 구조에 대해 더 나은 가정을 활용하고, 모델 용량을 늘리거나 단순히 더 오래 훈련하는 것이다.
+- 모델이 과대적합되기 시작할 때 규제를 통해 일반화 성능을 향상시키도록 목표가 바뀐다. 이를 위해 모델의 용량을 줄이고, 드롭아웃이나 가중치 규제를 추가하고 또는 조기 종료를 사용할 수 있다. 또한, 더 크고 양질의 데이터셋을 사용하는 것은 모델의 일반화 성능을 향상시키는 데 항상 좋은 방법이다.
