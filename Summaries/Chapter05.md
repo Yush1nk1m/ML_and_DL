@@ -163,3 +163,356 @@ model.fit(
 
 #### 일반화의 원천인 보간
 
+다루는 데이터 포인트를 보간할 수 있다면 이전에 본 적 없는 포인트를 해당 매니폴드에서 가까이 놓인 다른 포인트와 연결하여 이해할 수 있다. 즉, 공간 안의 샘플만 사용하여 공간 전체를 이해할 수 있다. 보간을 사용하면 빈 곳을 채울 수 있기 때문이다.
+
+잠재 매니폴드에서의 보간은 부모 공간에서의 선형 보간과 달리 2개의 MNIST 숫자 사이의 픽셀을 평균한다고 해도 일반적으로 유효한 숫자가 만들어지지 않는다.
+
+근사적으로 학습된 데이터 매니폴드에서 보간을 통해 딥러닝의 일반화가 달성된다. 보간은 이전에 본 것과 매우 가까운 것을 이해하는 데 도움을 줄 수 있다. 이를 **지역 일반화**(local generalization)라고 한다.
+
+사람은 보간 이외의 인지 메커니즘으로 **궁극 일반화**(extreme generalization)를 할 수 있다. 직관이나 패턴 인식과 같은 것은 대체로 보간에 해당하지만, 인간 고유의 추상화, 세상에 대한 상징적 모델링, 추론, 논리, 상식 등의 이성적 기능들은 그렇지 않다.
+
+#### 딥러닝이 작동하는 이유
+
+딥러닝은 잠재 매니폴드를 풀기 위한 도구이다. 예를 들어, 구겨진 종이 공 비유에서 종이는 3D 공간 안의 2D 매니폴드를 나타낸다. 딥러닝 모델은 여기서 2D 매니폴드를 푸는 것이다.
+
+딥러닝 모델은 근본적으로 매우 고차원의, 미분 가능한 곡선이다. 경사 하강법을 통해 이 곡선을 부드럽고 점진적으로 데이터 포인트에 맞춘다. 딥러닝은 본질적으로 크고 복잡한 곡선(매니폴드)을 선택하여 훈련 데이터 포인트에 맞을 때까지 파라미터를 점진적으로 조정하는 과정이다.
+
+경사 하강법을 통해 시간이 지남에 따라 모델이 데이터의 매니폴드를 대략적으로 근사하는 중간 지점이 있을 것이다. 그 지점에서 모델이 학습한 곡선을 따라 이동하는 것은 데이터의 실제 잠재 매니폴드를 따라 이동하는 것과 비슷하다. 따라서 모델이 훈련 입력 사이를 보간하여 이전에 본 적 없는 입력을 이해할 수 있을 것이다.
+
+이처럼 딥러닝 모델이 충분한 표현 능력을 가진다는 일반적인 사실 외에도 다음과 같이 잠재 매니폴드 학습에 특히 잘 맞는 몇 가지 속성이 있다.
+
+- 딥러닝 모델은 입력에서부터 출력으로 매끄럽고 연속적인 매핑을 구현한다. 이는 미분 가능하며, 미분 가능성 자체가 동일한 속성을 가진 잠재 매니폴드를 근사하는 데 도움이 된다.
+- 딥러닝 모델은 모델 구조에 대한 가정을 바탕으로 훈련 데이터에 있는 정보의 형태를 반영하는 식으로 구조화되는 경향이 있다. 특히 이미지 처리나 시퀀스 처리 모델에서 그렇다. 더 일반적으로 심층 신경망은 학습한 표현을 계층적이고 모듈화된 방식으로 구조화하며 이는 자연적인 데이터가 구성되는 방식을 반영한 것이다.
+
+#### 가장 중요한 훈련 데이터
+
+일반화 능력은 모델의 어떤 속성보다는 데이터 자체의 자연적인 구조가 큰 영향을 준다. 데이터가 보간할 수 있는 매니폴드를 형성하는 경우에만 일반화할 수 있다. 특성이 유익하고 잡음이 적을수록 입력 공간이 더 간단하고 구조적이기 때문에 더 잘 일반화할 수 있다. 데이터 큐레이션(data curation)과 특성 공학(feature engineering)은 일반화에 필수적이다.
+
+또한, 딥러닝은 곡선을 맞추는 과정이기 때문에 모델이 이를 잘 수행하려면 입력 데이터 매니폴드 전체를 조밀하게 커버해야 한다. 결정 경계 근처에서는 특히 그렇다. 충분히 조밀하게 샘플링하면 모델이 참고할 수 없는 상식, 요약, 추론 또는 세상에 대한 외부 지식을 사용하지 않고도 훈련 입력 사이를 보간하여 새로운 입력을 이해할 수 있다.
+
+따라서 딥러닝 모델을 강화시키는 가장 좋은 방법은 더 좋고 더 많은 데이터에서 훈련하는 것이다. 그리고 딥러닝 모델이 보간 이상의 것을 할 수 있을 것이라 기대하면 안 되고, 가능한 쉽게 보간하기 위해 할 수 있는 모든 것을 다 해야 한다.
+
+데이터를 더 수집하는 것이 불가능하다면 차선책은 모델이 저장할 수 있는 정보량을 조정하거나 모델 곡선의 매끄러운 정도에 제약을 추가하는 것이다. 네트워크가 적은 개수의 패턴만 기억하거나 매우 규칙적인 패턴만 기억할 수 있게 함으로써 최적화 과정에서 일반화 가능성이 높은, 가장 눈에 띄는 패턴에만 모델의 초점을 맞추도록 하는 것을 **규제**(regularization)라고 한다.
+
+
+
+## 5.2 머신 러닝 모델 평가
+
+제어할 수 있는 것은 오직 관찰할 수 있는 것이다. 일반화 성능이 좋은 모델을 개발하는 것이 목표이므로 모델의 일반화 성능을 신뢰 있게 측정할 수 있어야 한다. 이 절에선 머신 러닝 모델 평가 방법을 알아본다.
+
+### 5.2.1 훈련, 검증, 테스트 세트
+
+모델 평가의 핵심은 가용한 데이터를 항상 훈련 세트, 검증 세트, 테스트 세트로 나누는 것이다. 훈련 세트에서 모델을 훈련, 검증 세트에서 모델을 평가한다. 테스트 세트는 모델 출시 준비가 완료되면 최종적으로 단 한 번 테스트하는 용도이다. 그러므로 테스트 데이터는 가능한 제품 환경 데이터와 유사해야 한다. 그 다음 모델이 제품 환경에 배포된다.
+
+검증 세트가 사용되는 이유는 모델 개발 시 항상 층, 유닛 개수 등(**하이퍼파라미터**(hyperparameter)) 모델의 설정을 튜닝하기 때문이다. 이러한 튜닝도 파라미터 공간에서 좋은 설정을 찾는 **학습**에 해당한다. 그러나 검증 세트의 성능을 기반으로 모델을 튜닝하면 **검증 세트에 과대적합**될 수 있다.
+
+**정보 누설**(information leak) 개념에 의하면, 검증 세트의 모델 성능에 기반하여 하이퍼파라미터를 튜닝할 때마다 검증 데이터에 관한 정보가 모델로 샌다. 그러므로 모델 조정 과정이 여러 번 반복되면 검증 데이터 정보가 그만큼 많이 노출된다.
+
+다음으로는 데이터를 3개의 세트로 나누어야 하는데 데이터의 절대적인 양이 부족할 때 사용할 수 있는 방법들을 알아본다.
+
+#### 단순 홀드아웃 검증
+
+데이터의 일정량을 테스트 세트로 떼어 놓고, 남은 데이터에서 훈련한 후 테스트 세트로 평가한다. 정보 누설을 막기 위해 테스트 세트를 사용하여 모델을 튜닝해서는 안 된다. 이러한 이유로 검증 세트로 따로 떼어 놓아야 한다. 다음 코드는 간단한 예이다.
+
+**코드 5-5. 홀드아웃 검증 구현 예**
+```
+num_validation_samples = 10000
+# 데이터를 섞는 것이 일반적으로 좋다
+np.random.shuffle(data)
+# 검증 세트를 만든다
+validation_data = data[: num_validation_samples]
+# 훈련 세트를 만든다
+training_data = data[num_validation_samples :]
+# 훈련 세트에서 모델을 훈련하고 검증 세트로 평가한다
+model = get_model()
+model.fit(training_data, ...)
+validation_score = model.evaluate(validation_data, ...)
+
+# 모델 튜닝, 훈련, 평가 과정 반복 ...
+
+# 하이퍼파라미터 튜닝이 끝나면 테스트 데이터를 제외한 모든 데이터를 사용하여 모델을 다시 훈련시킨다
+model = get_model()
+model.fit(np.concatenate([training_data, validation_data]), ...)
+test_score = mode.evaluate(test_data, ...)
+```
+
+이 평가 방법은 단순해서 데이터가 적을 때는 검증 세트와 테스트 세트가 전체 데이터를 통계적으로 대표하지 못할 수 있다. 다른 난수 초기값으로 셔플링해서 데이터를 나누었을 때 모델의 성능이 매우 달라지면 이 문제에 해당한다. 다음에 알아볼 방법들은 이 문제를 해결할 수 있다.
+
+#### K-겹 교차 검증
+
+데이터를 동일한 크기의 K개 분할로 나눈다. 각 분할에 대해 나머지 K - 1개의 분할로 모델을 훈련하고 선택된 분할로 모델을 평가한다. 최종 점수는 이렇게 K번 구한 평가치의 평균이다. 이 방법은 모델의 성능이 데이터 분할에 따라 큰 편차를 보일 때 도움이 된다.
+
+**코드 5-6. K-겹 교차 검증 구현 예**
+```
+k = 3
+num_validation_samples = len(data) // k
+np.random.shuffle(data)
+validation_scores = []
+for fold in range(k):
+    validation_data = data[num_validation_samples * fold : num_validation_samples * (fold + 1)]
+    training_data = np.concatenate(
+        data[: num_validation_samples * fold],
+        data[num_validation_samples * (fold + 1) :]
+    )
+    model = get_model()
+    model.fit(training_data, ...)
+    validation_score = model.evaluate(validation_data, ...)
+    validation_scores.append(validation_score)
+validation_score = np.average(validation_scores)
+model = get_model()
+model.fit(data, ...)
+test_score = model.evaluate(test_data, ...)
+```
+
+#### 셔플링을 사용한 반복 K-겹 교차 검증
+
+비교적 가용 데이터가 적음에도 가능한 모델을 정확히 평가하고자 할 때 사용하는 방법이다. 캐글 경연에서 크게 도움이 되는 방법으로, K-겹 교차 검증을 여러 번 적용하되 K개의 분할로 나누기 전 매번 데이터를 무작위로 섞는다. 최종 점수는 모든 K-겹 교차 검증을 실행해 얻은 점수의 평균이다. 결국 P(반복 횟수) * K개의 모델을 훈련하고 평가하는 것이다. 그러므로 비용이 많이 드는 것이 단점이다.
+
+### 5.2.2 상식 수준의 기준점 넘기
+
+데이터셋으로 작업하기 전 항상 모델이 넘어야 할 간단한 기준점을 정해야 한다. 이 기준점은 랜덤한 분류기의 성능이나 머신 러닝 없이 생각할 수 있는 가장 간단한 방법의 성능 등이 될 수 있다.
+
+### 5.2.3 모델 평가에 대해 유념해야 할 점
+
+- **대표성 있는 데이터**: 훈련 세트와 테스트 세트는 주어진 데이터에 대해 통계적으로 대표성이 있어야 한다.
+- **시간의 방향**: 과거로부터 미래를 예측하는 데이터의 경우 절대로 무작위로 섞으면 안 된다. 이 경우엔 훈련 세트보다 테스트 세트가 무조건 미래의 것이어야 한다.
+- **데이터 중복**: 데이터셋에 어떤 데이터 포인트가 중복해서 등장하면 훈련 세트와 검증 세트로 양분되어 검증 세트로 훈련하는 상황이 일어날 수 있다. 이는 최악의 경우이다.
+
+
+
+## 5.3 훈련 성능 향상하기
+
+최적적합 모델을 얻으려면 먼저 과대적합되어야 한다. 과대적합되었다는 건 최적적합의 경계가 파악됐다는 의미이기 때문이다. 따라서 문제를 다루기 시작할 때 초기 목표는 약간의 일반화 능력을 보이고 과대적합할 수 있는 모델을 얻는 것이다. 이런 모델을 얻은 후 일반화 성능 개선을 위해 힘쓴다. 이 단계에서 일반적으로 다음과 같은 문제가 발생한다.
+
+- **훈련이 되지 않는 문제**: 시간이 지나도 훈련 손실이 줄어들지 않는 경우이다.
+- **훈련은 잘 시작되었으나 모델이 의미 있는 일반화를 달성하지 못하는 문제**: 상식 수준의 기준점을 넘어설 수 없는 경우이다.
+- 시간이 지남에 따라 훈련과 검증 손실이 모두 줄어들고 기준점을 넘어설 수 있지만 과대적합이 되지 않는 문제: 과소적합 상태가 갱신되기만 하는 경우이다.
+
+지금부터는 이런 이슈를 해결하여 상식 수준의 기준점을 넘을 수 있어 약간의 일반화 성능이 보장되고 과대적합할 수 있는 모델을 얻는 방법을 알아본다.
+
+### 5.3.1 경사 하강법의 핵심 파라미터 튜닝하기
+
+이따금 훈련이 시작되지 않거나 일찍 중단되고 손실이 멈추어 있는 문제가 발생한다. 이 문제는 항상 극복할 수 있다.
+
+이런 상황에는 항상 경사 하강법 과정에 대한 설정에 문제가 있다. 옵티마이저, 모델 가중치의 초기값 분포, 학습률, 배치 크기들은 상호의존적이다. 일반적으로 나머지 파라미터는 고정하고 학습률과 배치 크기를 튜닝하는 것으로 충분하다.
+
+구체적인 예로 MNIST 모델을 부적절하게 큰 학습률인 1.0으로 훈련한다.
+
+**코드 5-7. 잘못된 높은 학습률로 MNIST 모델 훈련하기**
+```
+from tensorflow.keras.datasets import mnist
+from tensorflow import keras
+from tensorflow.keras import layers
+
+(train_images, train_labels), _ = mnist.load_data()
+train_images = train_images.reshape((60000, 28 * 28))
+train_images = train_images.astype("float32") / 255
+
+model = keras.Sequential([
+    layers.Dense(512, activation="relu"),
+    layers.Dense(10, activation="softmax")
+])
+
+model.compile(optimizer=keras.optimizers.RMSprop(1.),
+              loss="sparse_categorical_crossentropy",
+              metrics=["accuracy"])
+
+model.fit(train_images, train_labels,
+          epochs=10,
+          batch_size=128,
+          validation_split=0.2)
+```
+
+이 모델은 약 20% 정도의 훈련 정확도와 검증 정확도를 보인다. 조금 더 합리적인 값인 1e-2로 학습률을 낮추어 보자.
+
+**코드 5-8. 같은 모델을 적절한 학습률로 훈련하기**
+```
+from tensorflow.keras.datasets import mnist
+from tensorflow import keras
+from tensorflow.keras import layers
+
+(train_images, train_labels), _ = mnist.load_data()
+train_images = train_images.reshape((60000, 28 * 28))
+train_images = train_images.astype("float32") / 255
+
+model = keras.Sequential([
+    layers.Dense(512, activation="relu"),
+    layers.Dense(10, activation="softmax")
+])
+
+model.compile(optimizer=keras.optimizers.RMSprop(1e-2),
+              loss="sparse_categorical_crossentropy",
+              metrics=["accuracy"])
+
+model.fit(train_images, train_labels,
+          epochs=10,
+          batch_size=128,
+          validation_split=0.2)
+```
+
+이 모델은 100%에 가까운 훈련 정확도와 검증 정확도를 달성한다.
+
+요약하자면 다음과 같은 해결 방법이 있다.
+
+- 학습률을 낮추거나 높인다. 너무 높은 학습률은 최적적합을 크게 뛰어넘는 업데이트를 발생시킬 수 있고, 너무 낮은 학습률은 훈련 속도를 느리게 만들어 업데이트가 발생하지 않는 것처럼 보일 수 있다.
+- 배치 크기를 증가시킨다. 배치 샘플을 늘릴수록 유익하고 잡음이 적은 그레이디언트가 만들어진다.
+
+### 5.3.2 구조에 대해 더 나은 가정하기
+
+모델이 훈련되지만 일반화되지 않는 경우는 최악의 머신 러닝 상황이다. 이는 접근 방식에 근본적인 문제가 있다는 의미이다.
+
+먼저 단순하게 입력 데이터에 타깃 예측을 위한 정보가 충분하지 않을 수 있다. 이 경우엔 문제를 풀 수 없다. 이는 레이블을 뒤섞은 모델 훈련과 비슷한 상황으로, 훈련 데이터에만 들어맞고 일반화는 전혀 불가능한 모델이 생성된다.
+
+또는 현재 사용하는 모델의 종류가 문제에 적합하지 않을 수 있다. 예를 들어 밀집 연결 신경망을 사용하는 시계열(timeseries) 예측 문제는 단순한 기준점을 넘어설 수 없다. 이 경우엔 순환 신경망(recurrent neural network)이 더 적합하며 일반화가 잘된다. 일반화를 달성하려면 문제에 대해 올바른 가정을 하는 모델을 사용해야 한다. 즉, 구조에 대한 올바른 가정이 필요하다.
+
+### 5.3.3 모델 용량 늘리기
+
+모델이 훈련되고 검증 지표가 향상되며 어느 정도의 일반화 능력을 달성한 것 같다면 다음으로는 과대적합을 달성해야 한다.
+
+다음과 같이 MNIST 픽셀에서 훈련하는 간단한 로지스틱 회귀(logistic regression) 모델을 가정해본다.
+
+**코드 5-9. MNIST 데이터를 사용한 간단한 로지스틱 회귀 모델**
+```
+model = keras.Sequential([layers.Dense(10, activation="softmax")])
+
+model.compile(optimizer="rmsprop",
+              loss="sparse_categorical_crossentropy",
+              metrics=["accuracy"])
+
+history_small_model = model.fit(
+    train_images,
+    train_labels,
+    epochs=20,
+    batch_size=128,
+    validation_split=0.2
+)
+```
+
+이 모델 훈련 후 얻은 손실 곡선은 다음과 같다.
+
+```
+import matplotlib.pyplot as plt
+
+val_loss = history_small_model.history["val_loss"]
+epochs = range(1, 21)
+
+plt.plot(epochs, val_loss, "b--", label="Validation loss")
+plt.title("Effect of insufficient model capacity on validation loss")
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.legend()
+plt.show()
+```
+
+![손실 곡선에 나타난 불충분한 모델 용량의 효과](image-41.png)
+
+검증 손실이 증가하지 않고 그 감소량이 정체되어 있다. 하지만 과대적합은 항상 가능하다. 그러므로 이러한 문제도 항상 해결할 수 있다. 과대적합할 수 없는 것처럼 보인다면 그것은 모델의 **표현 능력**(representation power)이 부족한 것이다. 이런 경우엔 용량이 더 큰, 정보를 더 많이 저장할 수 있는 모델이 필요하다. 층을 추가하거나, 층 크기를 늘리거나, 현재 문제에 더 적합한 종류의 층을 사용할 수 있다.
+
+다시 96개의 유닛을 가진 2개의 중간층으로 구성되어 용량이 더 큰 모델을 훈련하고 손실 곡선을 관찰해보자.
+
+```
+model = keras.Sequential([
+    layers.Dense(96, activation="relu"),
+    layers.Dense(96, activation="relu"),
+    layers.Dense(10, activation="softmax")
+])
+
+model.compile(optimizer="rmsprop",
+              loss="sparse_categorical_crossentropy",
+              metrics=["accuracy"])
+
+history_large_model = model.fit(
+    train_images,
+    train_labels,
+    epochs=20,
+    batch_size=128,
+    validation_split=0.2
+)
+```
+
+```
+import matplotlib.pyplot as plt
+
+val_loss = history_large_model.history["val_loss"]
+epochs = range(1, 21)
+
+plt.plot(epochs, val_loss, "b--", label="Validation loss")
+plt.title("Effect of insufficient model capacity on validation loss")
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.legend()
+plt.show()
+```
+
+![적절한 용량을 가진 모델의 검증 손실](image-42.png)
+
+검증 곡선에 의하면 모델이 빠르게 훈련되고 8번째 에포크 이후 과대적합이 시작된다.
+
+
+
+## 5.4 일반화 성능 향상하기
+
+모델이 어느 정도의 일반화 성능을 갖고 과대적합할 수 있다면 다음으로는 일반화 성능을 극대화하는 데 초점을 맞춘다.
+
+### 5.4.1 데이터셋 큐레이션
+
+데이터를 사용하여 샘플 사이를 부드럽게 보간할 수 있다면 일반화 성능을 가진 딥러닝 모델을 훈련할 수 있다. 따라서 적절한 데이터셋으로 작업하고 있는지 확인해 주는 것이 좋다.
+
+- 데이터가 충분한지 확인한다. 입력에서 출력을 매핑하는 공간은 조밀하게 샘플링되어야 한다. 데이터가 많을수록 좋은 모델이 만들어진다. 
+- 레이블 할당 에러를 최소화한다. 입력을 시각화하여 이상치를 확인하고, 레이블을 교정한다.
+- 데이터를 정제하고 누락된 값을 처리한다.
+- 많은 특성 중에서 어떤 것이 유용한지 확실하지 않다며 특성 선택을 수행한다.
+
+데이터의 일반화 가능성을 향상시키는 매우 중요한 방법 중 하나가 **특성 공학**(feature engineering)이다.
+
+### 5.4.2 특성 공학
+
+특성 공학은 데이터와 머신 러닝 알고리즘에 관한 지식을 사용하는 단계이다. 모델에 데이터를 주입하기 전 하드코딩된 변환을 적용하여 알고리즘이 더 잘 수행되도록 만들어 준다. 데이터들은 모델이 수월하게 작업할 수 있도록 표현될 필요가 있다.
+
+예를 들어 시계 이미지 입력을 받고 시간을 출력하는 모델을 만든다고 가정하자. 시계 이미지를 그대로 사용하여 학습한다면 복잡한 머신 러닝 모델이 필요할 것이지만, 이미지 중심에 대한 좌표와 시계 침의 각도를 이미지로부터 미리 추출하는 등의 작업을 통해 모델을 훨씬 간단하게 만들 수 있다. 이러면 문제는 쉬워지고, 잠재 매니폴드를 더 매끄럽고 간단하고 구조적으로 만들 수 있다. 그러면 결과적으로 일반화 성능이 좋아지게 된다.
+
+고전적인 머신 러닝 워크플로에서는 이러한 특성 공학이 필수적이었지만, 최신 딥러닝에서는 필요하지 않게 되었다. 신경망이 자동으로 원본 데이터에서 유용한 특성을 추출하게 된다. 그러나 다음과 같은 이유로 심층 신경망을 사용할 때에도 특성 공학에 대해 신경써야 한다.
+
+- 좋은 특성은 적은 자원을 사용하여 문제를 더 깔끔하게 풀 수 있도록 만들어준다.
+- 좋은 특성은 더 적은 데이터로 문제를 풀 수 있다. 딥러닝 모델이 스스로 특성을 학습하는 능력은 가용한 훈련 데이터가 많을 때의 이야기로, 샘플 개수가 적다면 특성에 있는 정보가 매우 중요해진다.
+
+### 5.4.3 조기 종료 사용하기
+
+딥러닝에서는 항상 지나치게 파라미터가 많은 모델을 사용하기 때문에 잠재 매니폴드를 학습하기 위해 필요한 최소한의 자유도보다 훨씬 많은 자유도를 가진다.
+
+훈련 중에 일반화 성능이 가장 높은 최적적합의 지점을 찾기 위해서 이전 장의 예제들은 필요보다 오랫동안 모델을 훈련했다. 그리고 최적적합 에포크 횟수를 찾아 다시 한번 모델을 학습했다. 그러나 이는 종종 많은 비용이 든다. 그 대신 에포크가 끝날 때마다 모델을 저장하고, 최상의 에포크를 찾은 후 저장된 모델을 사용할 수 있다. 케라스에서는 일반적으로 `EarlyStopping` 콜백(callback)을 사용하여 이를 처리한다. 검증 지표가 향상을 멈추면 즉시 훈련을 중지하고 최상의 검증 점수를 낸 모델을 남길 수 있다.
+
+### 5.4.4 모델 규제하기
+
+**규제**(regularization) 기법은 모델이 훈련 데이터에 완벽하게 맞추려는 경향을 적극적으로 방해한다. 이를 통해 검증 점수를 향상시키는 것이 목적이다. 모델이 훈련 세트에 덜 특화되고 데이터의 잠재 매니폴드를 조금 더 가깝게 근사함으로써 일반화 능력을 높일 수 있다. 모델 규제는 항상 정확한 평가 절차를 따라야 한다. 지금부터는 가장 널리 사용되는 규제 기법에 대해 알아본다.
+
+알맞은 층의 개수나 각 층의 유닛 개수를 결정하는 공식은 없다. 알맞은 모델을 찾으려면 검증 세트에서 일일이 평가해 보아야 한다. 적절한 모델 크기를 찾기 위해선 일반적으로 먼저 비교적 적은 수의 층과 파라미터로 시작하여 검증 손실이 감소되기 시작할 때까지 층이나 유닛 개수를 늘려간다.
+
+이를 영화 리뷰 분류 모델에 적용해 보겠다. 다음 코드는 원래 모델이다.
+
+**코드 5-10. 원본 모델**
+```
+from tensorflow.keras.datasets import imdb
+import numpy as np
+
+(train_data, train_labels), _ = imdb.load_data(num_words=10000)
+
+def vectorize_sequences(sequences, dimension=10000):
+    results = np.zeros((len(sequences), dimension))
+    for i, sequence in enumerate(sequences):
+        results[i, sequence] = 1.
+    return results
+train_data = vectorize_sequences(train_data)
+
+model = keras.Sequential([
+    layers.Dense(16, activation="relu"),
+    layers.Dense(16, activation="relu"),
+    layers.Dense(1, activation="sigmoid")
+])
+
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+
+history_original = model.fit(train_data, train_labels, epochs=20, batch_size=512, validation_split=0.4)
+```
