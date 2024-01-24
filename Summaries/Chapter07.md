@@ -176,3 +176,425 @@ _________________________________________________________________
 
 ### 7.2.2 함수형 API
 
+`Sequential` 모델로는 하나의 입력과 하나의 출력을 파이프라이닝한 모델만 표현할 수 있다. 그러나 실제로는 다중 입력 - 다중 출력 또는 비선형적인 구조를 가진 모델이 자주 등장한다. 이런 경우에 함수형 API를 사용하여 모델을 만든다.
+
+#### 간단한 예제
+
+먼저 2개의 층을 쌓아보자. 다음은 함수형 API 버전의 코드이다.
+
+**코드 7-8. 2개의 Dense 층을 가진 간단한 함수형 모델**
+```
+from tensorflow import keras
+from tensorflow.keras import layers
+
+inputs = keras.Input(shape=(3, ), name="my_input")
+features = layers.Dense(64, activation="relu")(inputs)
+outputs = layers.Dense(10, activation="softmax")(features)
+model = keras.Model(inputs=inputs, outputs=outputs)
+```
+
+`Input` 클래스 객체는 모델이 처리할 데이터의 크기와 `dtype`에 대한 정보를 가지고 있다. 이렇게 실제 데이터를 가지고 있지 않지만 모델이 보게 될 데이터 텐서의 사양이 인코딩되어 있는 객체를 **심볼릭 텐서**(symbolic tensor)라고 부른다.
+
+모든 케라스 층은 `features = layers.Dense(64, activation="relu")(inputs)` 또는 `outputs = layers.Dense(10, activation="softmax")(features)`와 같이 실제 데이터 텐서나 심볼릭 텐서로 호출할 수 있다.
+
+최종 출력(`output`)을 얻은 후에는 `Model` 클래스에 입력과 출력을 전달하여 모델 객체를 생성한다.
+
+```
+>>> model.summary()
+Model: "model"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ my_input (InputLayer)       [(None, 3)]               0         
+                                                                 
+ dense (Dense)               (None, 64)                256       
+                                                                 
+ dense_1 (Dense)             (None, 10)                650       
+                                                                 
+=================================================================
+Total params: 906 (3.54 KB)
+Trainable params: 906 (3.54 KB)
+Non-trainable params: 0 (0.00 Byte)
+_________________________________________________________________
+```
+
+#### 다중 입력, 다중 출력 모델
+
+대부분의 딥러닝 모델은 리스트 형태보다는 그래프 형태이다. 이런 모델의 정의에 함수형 API가 유용하게 사용된다.
+
+예를 들어 고객 이슈 티켓에 우선순위를 지정하고 적절한 부서로 전달하는 시스템을 만든다고 하자. 이 모델은 다음 3개의 입력을 사용한다.
+
+- 이슈 티켓의 제목(텍스트 입력)
+- 이슈 티켓의 텍스트 본문(텍스트 입력)
+- 사용자가 추가한 태그(범주형 입력으로 이 예제에서는 원-핫 인코딩되었다고 가정)
+
+텍스트 입력을 크기가 `vocabulary_size`인 0과 1의 배열로 인코딩할 수 있다.
+
+이 모델은 출력 역시 2개이다.
+
+- 이슈 티켓의 우선순위 점수로 0과 1 사이의 스칼라(시그모이드 출력)
+- 이슈 티켓을 처리해야 할 부서(전체 부서 집합에 대한 소프트맥스 출력)
+
+함수형 API를 사용하여 이런 모델을 몇 줄의 코드로 생성할 수 있다.
+
+**코드 7-9. 다중 입력, 다중 출력 함수형 모델**
+```
+vocabulary_size = 10000
+num_tags = 100
+num_departments = 4
+
+# 모델의 입력을 정의한다
+title = keras.Input(shape=(vocabulary_size, ), name="title")
+text_body = keras.Input(shape=(vocabulary_size, ), name="text_body")
+tags = keras.Input(shape=(num_tags, ), name="tags")
+
+# 입력 특성을 하나의 텐서 features로 연결한다
+features = layers.Concatenate()([title, text_body, tags])
+# 중간 층을 적용하여 입력 특성을 더 풍부한 표현으로 재결합시킨다
+features = layers.Dense(64, activation="relu")(features)
+
+# 모델의 출력을 정의한다
+priority = layers.Dense(1, activation="sigmoid", name="priority")(features)
+department = layers.Dense(num_departments, activation="softmax", name="department")(features)
+
+# 입력과 출력을 지정하여 모델을 만든다
+model = keras.Model(inputs=[title, text_body, tags],
+                    outputs=[priority, department])
+```
+
+층으로 구성된 어떤 그래프도 함수형 API로 구현이 가능하다.
+
+#### 다중 입력, 다중 출력 모델 훈련하기
+
+입력과 출력 데이터의 리스트로 `fit()` 메소드를 호출하면 모델을 훈련할 수 있다. 데이터의 리스트는 모델 정의 시 `Model` 클래스에 전달한 순서와 같아야 한다.
+
+**코드 7-10. 입력과 타깃 배열 리스트를 전달하여 모델 훈련하기**
+```
+import numpy as np
+
+num_samples = 1280
+
+title_data = np.random.randint(0, 2, size=(num_samples, vocabulary_size))
+text_body_data = np.random.randint(0, 2, size=(num_samples, vocabulary_size))
+tags_data = np.random.randint(0, 2, size=(num_samples, num_tags))
+
+priority_data = np.random.random(size=(num_samples, 1))
+department_data = np.random.randint(0, 2, size=(num_samples, num_departments))
+
+model.compile(optimizer="rmsprop",
+              loss=["mean_squared_error", "categorical_crossentropy"],
+              metrics=[["mean_absolute_error"], ["accuracy"]])
+
+model.fit([title_data, text_body_data, tags_data],
+          [priority_data, department_data],
+          epochs=1)
+
+model.evaluate([title_data, text_body_data, tags_data],
+              [priority_data, department_data])
+
+priority_preds, department_preds = model.predict([title_data, text_body_data, tags_data])
+```
+
+입력과 출력이 많은 경우엔 입력 순서에 관계 없이 데이터를 딕셔너리로 전달할 수도 있다. `Input` 객체와 출력 층에 부여한 이름을 활용한다.
+
+**코드 7-11. 입력과 타깃 배열을 딕셔너리로 전달하여 모델 훈련하기**
+```
+model.compile(optimizer="rmsprop",
+              loss={"priority": "mean_squared_error",
+                    "department": "categorical_crossentropy"},
+              metrics={"priority": ["mean_absolute_error"],
+                       "department": ["accuracy"]})
+
+model.fit({"title": title_data,
+           "text_body": text_body_data,
+           "tags": tags_data},
+          {"priority": priority_data,
+           "department": department_data},
+          epochs=1)
+
+model.evaluate({"title": title_data,
+                "text_body": text_body_data,
+                "tags": tags_data},
+               {"priority": priority_data,
+                "department": department_data})
+
+priority_preds, department_preds = model.predict({"title": title_data, "text_body": text_body_data, "tags": tags_data})
+```
+
+#### 함수형 API의 장점: 층 연결 구조 활용하기
+
+함수형 모델은 그래프 데이터 구조이다. 따라서 이전 그래프 노드(node)(층의 출력)를 새 모델의 일부로 재사용할 수 있다. 대부분의 연구자들이 심층 신경망에 대해 생각할 때 사용하는 멘탈 모델(mental model)인 층 그래프(graph of layers)에도 잘 맞는다. 이를 통해 모델 시각화와 특성 추출이라는 두 가지 중요한 기능을 사용할 수 있다.
+
+이전에 정의한 모델의 연결 구조(**토폴로지**(topology))를 시각화한다. `plot_model()` 함수를 사용하여 모델을 그래프로 그릴 수 있다.
+
+```
+keras.utils.plot_model(model, "ticket_classifier.png")
+```
+
+![plot_model()로 생성한 이슈 티켓 분류 모델 그림](image-47.png)
+
+각 층의 입력 크기를 추가하려면 `show_shape` 속성을 True로 전달한다.
+
+```
+keras.utils.plot_model(model, "ticket_classifier_with_shape_info.png", show_shapes=True)
+```
+
+![크기 정보가 추가된 모델 그림](image-48.png)
+
+텐서 크기에서 None에 해당하는 부분은 모델의 배치 크기를 나타낸다. 이 모델은 어떤 크기의 배치에서도 사용 가능하다.
+
+층 연결 구조를 참조하여 그래프에 있는 개별 노드를 조사하고 재사용할 수 있다.
+
+`model.layers` 속성은 모델에 있는 모든 층의 리스트를 가지고 있다. 각 층에 대해 `layer.input`, `layer.output`을 출력해볼 수 있다.
+
+**코드 7-12. 함수형 모델에 있는 층의 입력과 출력을 출력하기**
+```
+>>> model.layers
+[<keras.src.engine.input_layer.InputLayer at 0x7f977de42980>,
+ <keras.src.engine.input_layer.InputLayer at 0x7f977de409d0>,
+ <keras.src.engine.input_layer.InputLayer at 0x7f977de40850>,
+ <keras.src.layers.merging.concatenate.Concatenate at 0x7f970c234250>,
+ <keras.src.layers.core.dense.Dense at 0x7f970c238580>,
+ <keras.src.layers.core.dense.Dense at 0x7f9707994b80>,
+ <keras.src.layers.core.dense.Dense at 0x7f9707997cd0>]
+>>> model.layers[3].input
+[<KerasTensor: shape=(None, 10000) dtype=float32 (created by layer 'title')>,
+ <KerasTensor: shape=(None, 10000) dtype=float32 (created by layer 'text_body')>,
+ <KerasTensor: shape=(None, 100) dtype=float32 (created by layer 'tags')>]
+>>> model.layers[3].output
+<KerasTensor: shape=(None, 20100) dtype=float32 (created by layer 'concatenate')>
+```
+
+**특성 추출**(feature extraction)을 사용하여 다른 모델에서 중간 특성을 재사용하는 모델을 만들 수 있다.
+
+이전 모델에 또 다른 출력을 추가한다고 가정해 보자. 이슈 티켓이 해결되는 데 걸리는 시간, 즉 일종의 난이도를 추정하려고 한다. 이를 위해 `quick`, `medium`, `difficult` 3개의 범주에 대한 분류 층을 추가한다. 모델을 처음부터 다시 만들 필요 없이 다음과 같이 중간 층을 참조하여 중간 특성부터 시작한다.
+
+**코드 7-13. 중간 층의 출력을 재사용해서 새로운 모델 만들기**
+```
+features = model.layers[4].output
+difficulty = layers.Dense(3, activation="softmax", name="difficulty")(features)
+new_model = keras.Model(inputs=[title, text_body, tags],
+                        outputs=[priority, department, difficulty])
+```
+
+새로운 모델을 그래프로 출력해 보자.
+
+```
+keras.utils.plot_model(new_model, "updated_ticket_classifier.png", show_shapes=True)
+```
+
+![새로운 모델의 그래프](image-49.png)
+
+### 7.2.3 Model 서브클래싱
+
+Model 서브클래싱은 가장 고급의 모델 구축 패턴이다. Model 클래스를 상속하는 방법은 다음과 같다.
+
+- `__init__()` 메소드에서 모델이 사용할 층을 정의한다.
+- `call()` 메소드에서 앞서 만든 층을 사용하여 모델의 정방향 패스를 정의한다.
+- 서브클래스의 객체를 만들고 데이터와 함께 호출하여 가중치를 만든다.
+
+#### 이전 예제를 서브클래싱 모델로 다시 만들기
+
+`Model` 클래스를 상속하여 고객 이슈 티켓 관리 모델을 다시 구현한다.
+
+**코드 7-14. 간단한 서브클래싱 모델**
+```
+class CustomerTicketModel(keras.Model):
+    def __init__(self, num_departments):
+        # 반드시 부모 클래스의 생성자를 호출한다
+        super().__init__()
+        # 생성자에서 층을 정의한다
+        self.concat_layer = layers.Concatenate()
+        self.mixing_layer = layers.Dense(64, activation="relu")
+        self.priority_scorer = layers.Dense(1, activation="sigmoid")
+        self.department_classifier = layers.Dense(num_departments, activation="softmax")
+    
+    # call() 메소드에서 정방향 패스를 정의한다
+    def call(self, inputs):
+        title = inputs["title"]
+        text_body = inputs["text_body"]
+        tags = inputs["tags"]
+        features = self.concat_layer([title, text_body, tags])
+        features = self.mixing_layer(features)
+        priority = self.priority_scorer(features)
+        department = self.department_classifier(features)
+        return priority, department
+```
+
+모델을 정의하면 이 클래스의 객체를 만들 수 있다. `Layer` 클래스와 마찬가지로 데이터로 처음 호출 시 가중치를 생성한다.
+
+```
+model = CustomerTicketModel(num_departments=4)
+priority, department = model({"title": title_data,
+                              "text_body": text_body_data,
+                              "tags": tags_data})
+```
+
+모델을 컴파일하고 훈련할 수도 있다.
+
+```
+model.compile(optimizer="rmsprop",
+              # 손실과 측정 지표로 전달하는 값은 call() 메소드가 반환하는 것과 정확히 일치해야 한다
+              loss=["mean_squared_error", "categorical_crossentropy"],
+              metrics=[["mean_absolute_error"], ["accuracy"]])
+
+model.fit(  # 입력 데이터의 구조는 call() 메소드가 기대하는 것과 정확히 일치해야 한다
+          {"title": title_data,
+           "text_body": text_body_data,
+           "tags": tags_data},
+            # 타깃 데이터의 구조는 call() 메소드가 반환하는 것과 정확히 일치해야 한다
+          [priority_data, department_data],
+          epochs=1)
+
+model.evaluate({"title": title_data,
+                "text_body": text_body_data,
+                "tags": tags_data},
+               [priority_data, department_data])
+
+priority_preds, department_preds = model.predict({"title": title_data,
+                                                  "text_body": text_body_data,
+                                                  "tags": tags_data})
+```
+
+함수형 API로는 층의 유향 비순환 그래프(directed acyclic graph)까지만 표현할 수 있지만 Model 서브클래싱 워크플로는 그 이상을 표현할 수 있다.
+
+#### 주의: 서브클래싱된 모델이 지원하지 않는 것
+
+서브클래싱은 함수형 API처럼 레고 블록을 맞추는 느낌이라기보단 새로운 파이썬 객체를 개발하는 과정이다. 그러므로 디버깅 작업이 더 많이 필요하다.
+
+함수형 모델은 명시적인 데이터 구조인 층의 그래프이므로 출력, 조사, 수정이 가능하다. 그러나 서브클래싱 모델은 한 덩어리의 바이트코드(bytecode)로 원시 코드가 담긴 `call()` 메소드를 가진 파이썬 클래스이다. 이것이 서브클래싱 워크플로 특유의 유연성의 원천이다.
+
+그러나 층이 서로 연결되는 방식이 `call()` 메소드로 추상화되기에 이 정보를 활용할 수 없다. `summary()` 메소드가 층의 연결 구조를 출력할 수 없고, `plot_model()` 함수로 모델의 구조를 시각화할 수도 없다. 이와 같은 이유로 특성 추출을 위해 층 그래프 노드를 참조하는 것도 불가능하다. 모델의 객체를 생성하고 나면 일단 정방향 패스는 완전한 블랙박스가 된다.
+
+### 7.2.4 여러 방식을 혼합하여 사용하기
+
+Sequential 모델, 함수형 API, Model 서브클래싱 패턴끼리는 상호 운영이 가능하다.
+
+예를 들어 다음과 같이 함수형 모델에서 서브클래싱 층이나 모델을 사용할 수 있다.
+
+**코드 7-15. 서브클래싱한 모델을 포함하는 함수형 모델 만들기**
+```
+class Classifier(keras.Model):
+    def __init__(self, num_classes=2):
+        super().__init__()
+        if num_classes == 2:
+            num_units = 1
+            activation = "sigmoid"
+        else:
+            num_units = num_classes
+            activation = "softmax"
+        self.dense = layers.Dense(num_units, activation=activation)
+        
+    def call(self, inputs):
+        return self.dense(inputs)
+
+inputs = keras.Input(shape=(3, ))
+features = layers.Dense(64, activation="relu")(inputs)
+outputs = Classifier(num_classes=10)(features)
+model = keras.Model(inputs=inputs, outputs=outputs)
+```
+
+반대로 서브클래싱 층이나 모델의 일부로 함수형 모델을 사용할 수 있다.
+
+**코드 7-16. 함수형 모델을 포함하는 서브클래싱 모델 만들기**
+```
+inputs = keras.Input(shape=(64, ))
+outputs = layers.Dense(1, activation="sigmoid")(inputs)
+binary_classifier = keras.Model(inputs=inputs, outputs=outputs)
+
+class MyModel(keras.Model):
+    def __init__(self, num_classes=2):
+        super().__init__()
+        self.dense = layers.Dense(64, activation="relu")
+        self.classifier = binary_classifier
+        
+    def call(self, inputs):
+        features = self.dense(inputs)
+        return self.classifier(features)
+    
+model = MyModel()
+```
+
+### 7.2.5 작업에 적합한 도구 사용하기
+
+일반적으로 함수형 API가 쉬운 사용성, 유연성을 적절하게 보장한다. 층 연결 구조를 활용한 모델 출력, 특성 추출과 같은 용도에 잘 맞는다. 모델을 층의 유향 비순환 그래프로 표현할 수 있다면 함수형 API 사용이 권장된다.
+
+앞으로 이 책의 모든 예제는 함수형 API를 사용할 것이다. 하지만 서브클래싱 층을 자주 겸용하여 함수형 API의 장점을 유지하면서 높은 개발 유연성을 보장할 것이다.
+
+
+
+## 7.3 내장된 훈련 루프와 평가 루프 사용하기
+
+`compile()`, `fit()`, `evaluate()`, `predict()` 워크플로에 대해 다시 한번 되짚어보자.
+
+**코드 7-17. 표준 워크플로: compile(), fit(), evaluate(), predict()**
+```
+from tensorflow.keras.datasets import mnist
+
+# 재사용 가능하도록 별도의 함수로 모델을 만든다
+def get_mnist_model():
+    inputs = keras.Input(shape=(28 * 28, ))
+    features = layers.Dense(512, activation="relu")(inputs)
+    features = layers.Dropout(0.5)(features)
+    outputs = layers.Dense(10, activation="softmax")(features)
+    model = keras.Model(inputs, outputs)
+    return model
+
+# 데이터를 로드하고 검증 데이터까지 분리한다
+(images, labels), (test_images, test_labels) = mnist.load_data()
+images = images.reshape((60000, 28 * 28)).astype("float32") / 255
+test_images = test_images.reshape((10000, 28 * 28)).astype("float32") / 255
+train_images, val_images = images[10000:], images[:10000]
+train_labels, val_labels = labels[10000:], labels[:10000]
+
+model = get_mnist_model()
+
+# 옵티마이저, 최소화할 손실 함수, 모니터링할 지표를 지정하여 모델을 컴파일한다
+model.compile(optimizer="rmsprop",
+              loss="sparse_categorical_crossentropy",
+              metrics=["accuracy"])
+
+# fit() 메소드를 사용해 모델을 훈련한다
+model.fit(train_images, train_labels,
+          epochs=3,
+          validation_data=(val_images, val_labels))
+
+# evaluate() 메소드를 사용해 새로운 데이터에 대한 손실과 측정 지표를 계산한다
+test_metrics = model.evaluate(test_images, test_labels)
+
+# predict() 메소드를 사용해 새로운 데이터에 대한 분류 확률을 계산한다
+predictions = model.predict(test_images)
+```
+
+위의 간단한 워크플로를 커스터마이징할 수 있는 몇 가지 방법이 있다.
+
+- 사용자 정의 측정 지표를 전달한다.
+- `fit()` 메소드에 **콜백**(callback)을 전달하여 훈련하는 동안 특정 시점에 수행될 행동을 예약한다.
+
+### 7.3.1 사용자 정의 지표 만들기
+
+지표(metric)는 모델의 성능을 측정하는 열쇠이다. 특히 훈련 데이터와 테스트 데이터 성능 간의 차이를 측정하는 것이 중요하다. 분류, 회귀 문제에 일반적으로 사용되는 지표는 `keras.metrics` 모듈에 이미 포함되어 있다.
+
+케라스 지표는 `keras.metrics.Metric` 클래스를 상속한 클래스이다. 층과 마찬가지로 지표는 텐서플로 변수에 내부 상태를 저장한다. 층과 달리 이 변수는 역전파로 업데이트되지 않는다. 따라서 상태 업데이트 로직을 `update_state()` 메소드에 직접 작성해야 한다.
+
+다음은 평균 제곱근 오차(Root Mean Squared Error, RMSE)를 계산하는 간단한 사용자 정의 지표이다.
+
+**코드 7-18. Metric 클래스를 상속하여 사용자 정의 지표 구현하기**
+```
+import tensorflow as tf
+
+class RootMeanSquaredError(keras.metrics.Metric):
+    # 생성자에서 상태 변수를 정의한다. 층과 마찬가지로 add_weight() 메소드를 사용한다.
+    def __init__(self, name="rmse", **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.mse_sum = self.add_weight(name="mse_sum", initializer="zeros")
+        self.total_samples = self.add_weight(name="total_samples", initializer="zeros", dtype="int32")
+        
+    # update_state() 메소드 안에 상태 업데이트 로직을 구현한다
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true = tf.one_hot(y_true, depth=tf.shape(y_pred)[1])
+        mse = tf.reduce_sum(tf.square(y_true - y_pred))
+        self.mse_sum.assign_add(mse)
+        num_samples = tf.shape(y_pred)[0]
+        self.total_samples.assign_add(num_samples)
+```
