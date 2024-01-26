@@ -740,3 +740,46 @@ model.fit(train_images, train_labels,
 
 ### 7.3.4 텐서보드를 사용한 모니터링과 시각화
 
+텐서보드는 로컬에서 실행할 수 있는 브라우저 기반의 애플리케이션이다. 텐서보드를 사용하면 다음과 같은 일들을 수행할 수 있다.
+
+- 훈련하는 동안 측정 지표를 시각적으로 모니터링한다.
+- 모델 구조를 시각화한다.
+- 활성화 출력과 그레이디언트의 히스토그램을 그린다.
+- 임베딩을 3D로 표현한다.
+
+텐서보드를 사용하는 가장 쉬운 방법은 `keras.callbacks.TensorBoard` 콜백이다.
+
+```
+model = get_mnist_model()
+
+model.compile(optimizer="rmsprop",
+              loss="sparse_categorical_crossentropy",
+              metrics=["accuracy"])
+
+tensorboard = keras.callbacks.TensorBoard(
+    log_dir="./logs/tensorboard",
+)
+
+model.fit(train_images, train_labels,
+          epochs=10,
+          validation_data=(val_images, val_labels),
+          callbacks=[tensorboard])
+```
+
+모델 실행 후에는 지정된 위치에 로그가 기록될 것이다. 다음과 같은 jupyter 스크립트로 `tensorboard` 명령을 사용할 수 있다.
+
+```
+!tensorboard --logdir ./logs/tensorboard
+```
+
+코랩 노트북에서는 다음과 같은 명령어를 사용하면 된다.
+
+```
+%load_ext tensorboard
+%tensorboard --logdir ./logs/tensorboard
+```
+
+
+
+## 7.4 사용자 정의 훈련, 평가 루프 만들기
+
