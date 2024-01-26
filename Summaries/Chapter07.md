@@ -597,4 +597,146 @@ class RootMeanSquaredError(keras.metrics.Metric):
         self.mse_sum.assign_add(mse)
         num_samples = tf.shape(y_pred)[0]
         self.total_samples.assign_add(num_samples)
+    
+    def result(self):
+        return tf.sqrt(self.mse_sum / tf.cast(self.total_samples, tf.float32))
+    
+    def reset_state(self):
+        self.mse_sum.assign(0.)
+        self.total_samples.assign(0)
 ```
+
+`result()` 메소드는 현재 지표 값을 반환하고, `reset_state()` 메소드에서는 객체를 재생성하지 않고 상태를 초기화한다.
+
+사용자 정의 지표는 다음과 같이 내장 지표와 동일한 방식으로 사용할 수 있다.
+
+```
+model = get_mnist_model()
+
+model.compile(optimizer="rmsprop",
+              loss="sparse_categorical_crossentropy",
+              metrics=["accuracy", RootMeanSquaredError()])
+
+model.fit(train_images, train_labels,
+          epochs=3,
+          validation_data=(val_images, val_labels))
+
+test_metrics = model.evaluate(test_images, test_labels)
+```
+
+### 7.3.2 콜백 사용하기
+
+케라스의 `model.fit()`은 종이비행기에 비유할 수 있다. 일단 한 번 손을 벗어나면 경로와 착륙 지점을 제어할 수 없다는 점에서 그러하다. **콜백**(callback)은 이러한 종이비행기를 스스로 판단하고 동적으로 결정하는 자동 드론처럼 만들어 준다.
+
+콜백은 `fit()` 메소드 호출 시 전달되는 객체이다. 이 객체는 특정 메소드가 구현된 클래스 객체이다. 훈련 중 모델은 여러 지점에서 콜백을 호출하고, 콜백은 모델 상태와 성능에 대한 모든 정보에 접근하고 훈련 중지, 모델 저장, 가중치 적재 또는 모델 상태 변경 등을 처리할 수 있다.
+
+다음은 콜백 사용 사례이다.
+
+- **모델 체크포인트(checkpoint) 저장**: 훈련하는 동안 특정 지점에서의 모델의 현재 가중치를 저장한다.
+- **조기 종료**(early stopping): 검증 손실이 더 이상 향상되지 않을 때 훈련을 중지한다.
+- **훈련하는 동안 하이퍼파라미터 값을 동적으로 조정하는 경우**: 옵티마이저의 학습률 같은 경우이다.
+- **훈련과 검증 지표를 로그에 기록하거나 모델이 학습한 표현이 업데이트될 때마다 시각화하는 것**: `fit()` 메소드의 진행 표시줄도 하나의 콜백이다.
+
+`keras.callbacks` 모듈에는 여러 가지 내장 콜백이 포함되어 있다. 예를 들어 다음과 같은 것들이 있다.
+
+- keras.callbacks.ModelCheckpoint
+- keras.callbacks.EarlyStopping
+- keras.callbacks.LearningRateScheduler
+- keras.callbacks.ReduceLROnPlateau
+- keras.callbacks.CSVLogger
+
+#### ModelCheckpoint와 EarlyStopping 콜백
+
+`EarlyStopping` 콜백을 사용하면 검증 손실이 더 이상 향상되지 않을 때 훈련을 멈출 수 있다. 기존에 과대적합이 될 때까지 에포크를 증가시키고 다시 최적적합이 될 때까지 훈련을 반복한 비효율적인 과정을 개선할 수 있다.
+
+정해진 에포크 동안 모니터링 지표가 개선되지 않을 때 훈련을 중지한다. 예를 들어 과대적합이 시작되자마자 훈련을 중지할 수 있다. 일반적으로 이 콜백은 훈련하는 동안 모델을 계속 저장해주는 `ModelCheckpoint` 콜백과 함께 사용한다.
+
+**코드 7-19. fit() 메소드에서 callbacks 매개변수 사용하기**
+```
+# fit() 메소드의 callbacks 매개변수를 사용하여 콜백의 리스트를 모델로 전달한다
+callbacks_list = [
+    # 성능 향상이 멈추면 훈련을 정지한다
+    keras.callbacks.EarlyStopping(
+        # 모델의 검증 정확도를 모니터링한다
+        monitor="val_accuracy",
+        # 두 번의 에포크 동안 지표가 개선되지 않으면 훈련을 중지한다
+        patience=2,
+    ),
+    
+    # 매 에포크 끝에서 현재 가중치를 저장한다
+    keras.callbacks.ModelCheckpoint(
+        # 모델 파일의 저장 경로
+        filepath="./checkpoint_model.keras",
+        # 검증 손실이 개선되지 않으면 모델 파일을 덮어쓰지 않는다
+        monitor="val_loss",
+        save_best_only=True,
+    )
+]
+
+model = get_mnist_model()
+
+model.compile(optimizer="rmsprop",
+              loss="sparse_categorical_crossentropy",
+              metrics=["accuracy"])
+
+model.fit(train_images, train_labels,
+          epochs=10,
+          callbacks=callbacks_list,
+          validation_data=(val_images, val_labels))
+```
+
+`model.save([경로])`를 호출하여 모델을 저장할 수 있고, 저장된 모델은 `model = keras.models.load_model([경로])`로 로드할 수 있다.
+
+### 7.3.3 사용자 정의 콜백 만들기
+
+사용자 정의 콜백은 `keras.callbacks.Callback` 클래스를 상속받아 구현한다. 그 다음 훈련하는 동안 다음과 같이 여러 지점에서 호출될 다음과 같은 메소드를 구현한다.
+
+- `on_epoch_begin(epoch, logs)`: 각 에포크가 시작될 때 호출된다.
+- `on_epoch_end(epoch, logs)`: 각 에포크가 종료될 때 호출된다.
+- `on_batch_begin(batch, logs)`: 각 배치 처리가 시작되기 전에 호출된다.
+- `on_batch_end(batch, logs)`: 각 배치 처리가 끝난 후에 호출된다.
+- `on_train_begin(logs)`: 훈련이 시작될 때 호출된다.
+- `on_train_end(logs)`: 훈련이 끝날 때 호출된다.
+
+`logs` 매개변수는 이전 배치, 에포크 또는 훈련 실행에 대한 정보가 담긴 딕셔너리이다. 또한, on_epoch_*, on_batch_* 메소드는 에포크 인덱스나 배치 인덱스를 첫 번째 매개변수로 받는다.
+
+다음은 훈련 도중 배치 손실 값을 리스트에 추가하고 에포크 끝에서 그래프로 저장하는 간단한 예제이다.
+
+**코드 7-20. Callback 클래스를 상속하여 사용자 정의 콜백 만들기**
+```
+from matplotlib import pyplot as plt
+
+class LossHistory(keras.callbacks.Callback):
+    def on_train_begin(self, logs):
+        self.per_batch_losses = []
+        
+    def on_batch_end(self, batch, logs):
+        self.per_batch_losses.append(logs.get("loss"))
+        
+    def on_epoch_end(self, epoch, logs):
+        plt.clf()
+        plt.plot(range(len(self.per_batch_losses)), self.per_batch_losses, label="Training loss for each batch")
+        plt.xlabel(f"Batch (epoch {epoch})")
+        plt.ylabel("Loss")
+        plt.legend()
+        plt.savefig(f"./figs/plot_at_epoch_{epoch}")
+        self.per_batch_losses = []
+```
+
+```
+model = get_mnist_model()
+
+model.compile(optimizer="rmsprop",
+              loss="sparse_categorical_crossentropy",
+              metrics=["accuracy"])
+
+model.fit(train_images, train_labels,
+          epochs=10,
+          callbacks=[LossHistory()],
+          validation_data=(val_images, val_labels))
+```
+
+![손실 그래프를 저장하는 사용자 정의 콜백의 출력 결과](../Codes/figs/plot_at_epoch_0.png)
+
+### 7.3.4 텐서보드를 사용한 모니터링과 시각화
+
