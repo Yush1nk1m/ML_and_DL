@@ -783,3 +783,239 @@ model.fit(train_images, train_labels,
 
 ## 7.4 사용자 정의 훈련, 평가 루프 만들기
 
+내장된 `fit()` 워크플로는 **지도 학습**(supervised learning)에만 초점이 맞추어져 있다. 입력 데이터와 이에 연관된 **타깃**(**레이블** 또는 **애너테이션**)을 가지며 모델의 예측과 이 타깃의 함수로 손실을 계산한다. 하지만 **생성 학습**(generative learning), **자기지도 학습**(self-supervised learning), **강화 학습**(reinforcement learning) 등 명시적인 타깃이 없는 경우도 있다.
+
+이렇게 내장 `fit()` 메소드가 불충분한 경우엔 다음과 같은 저수준 훈련 로직을 기반으로 훈련 루프를 다시 설계해야 한다.
+
+1. 현재 배치 데이터에 대한 손실 값을 얻기 위해 그레이디언트 테이프 안에서 정방향 패스를 실행한다(모델의 출력을 계산한다).
+2. 모델 가중치에 대한 손실의 그레이디언트를 계산한다.
+3. 현재 배치 데이터에 대한 손실 값을 낮추는 방향으로 모델 가중치를 업데이트한다.
+
+위와 같은 저수준의 단계가 각각의 배치 데이터들에 대해 반복된다.
+
+### 7.4.1 훈련 vs 추론
+
+지금까지 본 저수준 훈련 루프에서는 `predictions = model(inputs)`로 정방향 패스를 수행, `gradients = tape.gradient(loss, model.weights)`를 통해 그레이디언트 테이프로 계산한 테이프를 추출하였다. 이 과정에서 고려해야 할 중요한 사안이 두 가지 있다.
+
+첫 번째로, `Dropout` 층과 같은 일부 케라스 층은 **훈련**(training)과 **추론**(inference)에서 동작이 다르다. 훈련 시에는 일부 층의 출력을 제외하지만 훈련 중이 아닐 때는 모든 층의 출력을 사용한다. 이때 `training = True`처럼 `training` 매개변수가 사용되는데, 정방향 패스에서 케라스 모델을 호출할 때 역시 `training` 매개변수를 참으로 설정해 주어야 한다. 따라서 정방향 패스는 `predictions = model(inputs, training=True)`가 된다.
+
+두 번째로, 모델 가중치 그레이디언트를 추출할 때도 `tape.gradients(loss, model.trainable_weights)`처럼 훈련 가능한 가중치만을 추출해야 한다. 가중치에는 두 가지 종류가 있다.
+
+- **훈련 가능한 가중치**: Dense 층의 커널과 편향처럼 모델의 손실을 최소화하기 위해 역전파로 업데이트된다.
+- **훈련되지 않는 가중치**: 해당 층의 정방향 패스 동안 업데이트된다. 예를 들어 얼마나 많은 배치를 처리했는지 세는 층을 만들 수 있다.
+
+케라스 내장 층 중 훈련되지 않는 가중치를 가진 층은 `BatchNormalization`뿐이다. `BatchNormalization` 층은 처리하는 데이터의 평균, 표준 편차에 대한 정보를 추적하여 **특성 정규화**(feature normalization)를 실시간으로 근사하기 위해 훈련되지 않는 가중치를 필요로 한다.
+
+```
+def train_step(inputs, targets):
+    with tf.GradientTape() as tape:
+        predictions = model(inputs, training=True)
+        loss = loss_fn(targets, predictions)
+    gradients = tape.gradients(loss, model.trainable_weights)
+    optimizer.apply_gradients(zip(model.trainable_weights, gradients))
+```
+
+### 7.4.2 측정 지표의 저수준 사용법
+
+단순히 각 배치 타깃과 예측에 대해 `update_state(y_true, y_pred)`를 호출하면 된다. 그리고 `result()` 메소드를 활용하여 현재 지표 값을 얻는다.
+
+```
+metric = keras.metrics.SparseCategoricalAccuracy()
+targets = [0, 1, 2]
+predictions = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+metric.update_state(targets, predictions)
+current_result = metric.result()
+```
+
+스칼라 값의 평균을 추적하는 상황에서는 `keras.metrics.Mean`을 사용한다.
+
+```
+values = [0, 1, 2, 3, 4]
+mean_tracker = keras.metrics.Mean()
+for value in values:
+    mean_tracker.update_state(value)
+result = mean_tracker.result()
+```
+
+현재 결과를 재설정하고 싶을 땐 `metric.reset_state()`를 사용한다.
+
+### 7.4.3 완전한 훈련과 평가 루프
+
+정방향 패스, 역방향 패스, 지표 추적을 `fit()`과 유사한 훈련 스텝 함수로 연결해 보자. 이 함수는 데이터와 타깃의 배치를 받고 `fit()` 진행 표시줄이 출력하는 로그를 반환한다.
+
+**코드 7-21. 단계별 훈련 루프 작성하기: 훈련 스텝 함수**
+```
+import tensorflow as tf
+
+model = get_mnist_model()
+
+# 손실 함수를 준비한다
+loss_fn = keras.losses.SparseCategoricalCrossentropy()
+# 옵티마이저를 준비한다
+optimizer = keras.optimizers.RMSprop()
+# 모니터링할 지표 리스트를 준비한다
+metrics = [keras.metrics.SparseCategoricalAccuracy()]
+# 손실 평균을 추적할 평균 지표를 준비한다
+loss_tracking_metric = keras.metrics.Mean()
+
+def train_step(inputs, targets):
+    # 정방향 패스를 실행한다
+    with tf.GradientTape() as tape:
+        # training=True를 전달한다다
+        predictions = model(inputs, training=True)
+        loss = loss_fn(targets, predictions)
+    # 역방향 패스를 실행한다
+    # model.trainable_weights를 사용한다
+    gradients = tape.gradient(loss, model.trainable_weights)
+    optimizer.apply_gradients(zip(gradients, model.trainable_weights))
+    logs = {}
+    # 측정 지표를 계산한다
+    for metric in metrics:
+        metric.update_state(targets, predictions)
+        logs[metric.name] = metric.result()
+    # 손실 평균을 계산한다
+    loss_tracking_metric.update_state(loss)
+    logs["loss"] = loss_tracking_metric.result()
+    # 지표와 손실의 현재 값을 반환한다
+    return logs
+```
+
+매 에포크 시작과 평가 전에 지표의 상태를 재설정해야 한다. 다음은 이를 위한 유틸리티 함수이다.
+
+**코드 7-22. 단계별 훈련 루프 작성하기: 지표 재설정**
+```
+def reset_metrics():
+    for metric in metrics:
+        metric.reset_state()
+    loss_tracking_metric.reset_state()
+```
+
+이제 완전한 훈련 루프를 구성할 수 있다. `tf.Data.Dataset` 객체를 사용하여 넘파이 데이터를 크기가 32인 배치로 데이터를 순회하는 반복자로 바꾼다.
+
+**코드 7-23. 단계별 훈련 루프 작성하기: 훈련 루프 자체**
+```
+training_dataset = tf.data.Dataset.from_tensor_slices(
+    (train_images, train_labels)
+)
+training_dataset = training_dataset.batch(32)
+epochs = 3
+for epoch in range(epochs):
+    reset_metrics()
+    for inputs_batch, targets_batch in training_dataset:
+        logs = train_step(inputs_batch, targets_batch)
+    print(f"{epoch}번째 에포크 결과")
+    for key, value in logs.items():
+        print(f"...{key}: {value:.4f}")
+```
+
+다음은 평가 루프이다. 간단한 for 루프로 하나의 배치 데이터를 처리하는 `test_step()` 함수를 반복하여 호출한다. `train_step()` 함수의 로직 일부분을 사용하지만 모델의 가중치를 업데이트하는 코드가 빠져 있다.
+
+**코드 7-24. 단계별 평가 루프 작성하기**
+```
+def test_step(inputs, targets):
+    predictions = model(inputs, training=False)
+    loss = loss_fn(targets, predictions)
+    
+    logs = {}
+    for metric in metrics:
+        metric.update_state(targets, predictions)
+        logs["val_" + metric.name] = metric.result()
+    loss_tracking_metric.update_state(loss)
+    logs["val_loss"] = loss_tracking_metric.result()
+    return logs
+
+val_dataset = tf.data.Dataset.from_tensor_slices((val_images, val_labels))
+val_dataset = val_dataset.batch(32)
+reset_metrics()
+for inputs_batch, targets_batch in val_dataset:
+    logs = test_step(inputs_batch, targets_batch)
+print("평가 결과:")
+for key, value in logs.items():
+    print(f"...{key}: {value:.4f}")
+```
+
+### 7.4.4 tf.function으로 성능 높이기
+
+이전에 직접 작성한 fit(), evaluate() 루프가 내장 메소드보다 훨씬 느리게 실행되는 이유는 기본적으로 텐서플로 코드가 즉시(eagerly) 라인 단위로 실행되기 때문이다. **즉시 실행**(eager execution)은 코드 디버깅을 쉽게 만들어주지만 성능 측면에서 최적은 아니다.
+
+텐서플로 코드는 **계산 그래프**(computation graph)로 컴파일하는 것이 더 성능이 좋다. 여기에서 라인 단위 해석 시 불가능한 전역 최적화가 가능하다. 실행하기 전에 컴파일하고 싶은 함수에 `@tf.function` 데코레이터(decorator)를 추가한다.
+
+**코드 7-25. 평가 스텝 함수에 @tf.function 데코레이터 추가하기**
+```
+@tf.function
+def test_step(inputs, targets):
+    predictions = model(inputs, training=False)
+    loss = loss_fn(targets, predictions)
+    
+    logs = {}
+    for metric in metrics:
+        metric.update_state(targets, predictions)
+        logs["val_" + metric.name] = metric.result()
+    loss_tracking_metric.update_state(loss)
+    logs["val_loss"] = loss_tracking_metric.result()
+    return logs
+
+val_dataset = tf.data.Dataset.from_tensor_slices((val_images, val_labels))
+val_dataset = val_dataset.batch(32)
+reset_metrics()
+for inputs_batch, targets_batch in val_dataset:
+    logs = test_step(inputs_batch, targets_batch)
+print("평가 결과:")
+for key, value in logs.items():
+    print(f"...{key}: {value:.4f}")
+```
+
+즉시 실행 코드를 사용하여 디버깅을 모두 마친 뒤 성능 개선만 남은 상황에 `@tf.function` 데코레이터를 붙이는 것이 좋다.
+
+### 7.4.5 fit() 메소드를 사용자 정의 루프로 활용하기
+
+`Model` 클래스의 `train_step()` 메소드를 오버라이딩(overriding)하면 이전까지 정의한 사용자 정의 fit() 메소드와 내장 fit() 메소드의 중간 지점 성격으로 자신만의 학습 알고리즘을 정의할 수 있다. 간단한 예는 다음과 같다.
+
+- keras.Model을 상속한 새로운 클래스를 만든다.
+- train_step(self, data) 메소드를 오버라이드한다. 내용은 이전 절에서 만든 것과 거의 동일하며, 측정 지표 이름과 현재 값이 매핑된 딕셔너리를 반환한다.
+- 모델의 Metric 객체들을 반환하는 metrics 속성을 구현한다. 이를 활용해 매 에포크 시작이나 evaluate()를 호출할 때 모델이 지표 객체들의 reset_state() 메소드를 자동으로 호출할 수 있다.
+
+**코드 7-26. fit()이 사용할 사용자 정의 훈련 스텝 구현하기**
+```
+loss_fn = keras.losses.SparseCategoricalCrossentropy()
+loss_tracker = keras.metrics.Mean(name="loss")
+
+class CustomModel(keras.Model):
+    def train_step(self, data):
+        inputs, targets = data
+        with tf.GradientTape() as tape:
+            predictions = self(inputs, training=True)
+            loss = loss_fn(targets, predictions)
+        gradients = tape.gradient(loss, self.trainable_weights)
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_weights))
+        loss_tracker.update_state(loss)
+        return {"loss": loss_tracker.result()}
+    
+    @property
+    def metrics(self):
+        return [loss_tracker]
+```
+
+이제 사용자 정의 모델의 객체를 만들고, 컴파일하고, fit() 메소드로 훈련할 수 있다.
+
+몇 가지 주의할 점이 있다.
+
+- 이 패턴은 함수형 API로 모델을 만드는 데 문제가 되지 않는다. 어떤 모델을 만드는지에 상관없이 이 방식을 사용할 수 있다.
+- 프레임워크가 알아서 처리하기 때문에 train_step 메소드를 오버라이딩할 때 @tf.function 데코레이터를 사용할 필요가 없다.
+
+`compile()` 메소드를 호출한 후엔 다음을 참조할 수 있다.
+
+- **self.compiled_loss**: compile() 메소드에 전달한 손실 함수이다.
+- **self.compiled_metrics**: compile() 메소드에 전달된 지표 목록이 포함되어 있는 객체이다. `self.compiled_metrics.update_state()`를 호출하여 모든 지표를 동시에 업데이트할 수 있다.
+- **self.metrics**: compile() 메소드에 전달한 실제 지표의 목록이다.
+
+
+
+## 7.5 요약
+
+- 케라스는 **복잡성의 단계적 공개** 원칙을 기반으로 다양한 워크플로를 제공한다. 워크플로는 부드럽게 상호 운영이 가능하다.
+- Sequential 클래스, 함수형 API를 사용하거나 Model 클래스를 상속하여 모델을 만들 수 있다. 대부분의 경우 함수형 API를 사용할 것이다.
+- 모델을 훈련하고 평가하는 가장 간단한 방법은 기본으로 제공되는 fit()과 evaluate() 메소드를 사용하는 것이다.
+- 케라스 콜백은 fit() 메소드가 실행되는 동안 모델을 모니터링하고 모델의 상태에 따라 자동으로 행동을 수행할 수 있는 간단한 방법이다.
+- train_step() 메소드를 오버라이딩하여 fit() 메소드의 동작을 완전히 제어할 수도 있다.
+- fit() 메소드를 넘어 밑바닥부터 자신만의 훈련 루프를 작성할 수도 있다. 완전히 새로운 훈련 알고리즘을 구현하려는 연구자에게 유용한 기능이다.
