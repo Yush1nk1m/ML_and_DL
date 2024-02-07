@@ -543,3 +543,443 @@ history = model.fit(
     callbacks=callbacks,
 )
 ```
+
+![Xception 유사 모델의 훈련과 검증 지표 1](image-66.png)
+![Xception 유사 모델의 훈련과 검증 지표 2](image-67.png)
+
+```
+test_model = keras.models.load_model("mini_Xception.keras")
+test_loss, test_acc = test_model.evaluate(test_dataset)
+print(f"테스트 정확도: {test_acc:.3f}")
+```
+
+새로운 모델은 89.1%의 테스트 정확도를 달성했다. 이처럼 아키텍처 모범 사례를 따르면 모델 성능에 즉각적이고 괄목할 만한 영향을 줄 수 있다.
+
+이 시점에서 모델의 성능을 더 향상시키려면 모델의 파라미터를 체계적으로 튜닝해야 한다. 이 과정이 없으면 모델의 구성은 순수하게 모범 사례와 모델 크기에 대한 약간의 직관을 기반으로 한다.
+
+
+
+## 9.4 컨브넷이 학습한 것 해석하기
+
+컴퓨터 비전 애플리케이션을 구축할 때의 근본적인 문제는 **해석 가능성**(interpretability)이다. 
+
+딥러닝 모델을 자주 블랙박스에 비유한다. 모델이 학습한 표현을 사람이 이해하기 쉬운 형태로 제시하기 어렵기 때문이다. 하지만 이 비유는 컨브넷에는 들어맞지 않는다. 컨브넷이 학습한 표현은 시각화하기가 좋다. 가장 사용이 편하고 유용한 세 가지 시각화 기법은 다음과 같다.
+
+- **컨브넷 중간층의 출력(중간층에 있는 활성화)을 시각화하기**: 연속된 컨브넷 층이 어떻게 입력을 변형시키는지 이해하고 개별적인 컨브넷 필터의 의미를 파악하는 데 도움이 된다.
+- **컨브넷 필터를 시각화하기**: 컨브넷의 필터가 찾으려는 시각적인 패턴과 개념이 무엇인지 상세하게 이해하는 데 도움이 된다.
+- **클래스 활성화에 대한 히트맵(heatmap)을 이미지에 시각화하기**: 어떤 클래스에 속하는 데 이미지의 어느 부분이 기여했는지 이해하고 이미지에서 객체의 위치를 추정(localization)하는 데 도움이 된다.
+
+첫 번째 방법은 8장에서 훈련한 **convnet_from_scratch_with_augmentation.keras**에 적용하고, 나머지 방법은 사전 훈련된 Xception 모델에 적용해 보자.
+
+### 9.4.1 중간 활성화 시각화
+
+중간층의 활성화 시각화는 어떤 입력에 대해 모델에 있는 여러 합성곱과 풀링 층이 반환하는 값을 그리는 것이다. 층의 출력을 종종 활성화 함수의 활성화(activation)라고 부르기 때문에 활성화 시각화라고 부르는 것이다. 이 방법으로는 네트워크가 입력을 분해하는 방식을 보여준다. 너비, 높이, 깊이(채널)의 3개 차원에 대한 특성 맵을 시각화하는 것이 좋다.
+
+```
+>>> from tensorflow import keras
+>>> model = keras.models.load_model("convnet_from_scratch_with_augmentation.keras")
+>>> model.summary()
+Model: "model_1"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ input_2 (InputLayer)        [(None, 180, 180, 3)]     0         
+                                                                 
+ sequential (Sequential)     (None, 180, 180, 3)       0         
+                                                                 
+ rescaling_1 (Rescaling)     (None, 180, 180, 3)       0         
+                                                                 
+ conv2d_5 (Conv2D)           (None, 178, 178, 32)      896       
+                                                                 
+ max_pooling2d_4 (MaxPoolin  (None, 89, 89, 32)        0         
+ g2D)                                                            
+                                                                 
+ conv2d_6 (Conv2D)           (None, 87, 87, 64)        18496     
+                                                                 
+ max_pooling2d_5 (MaxPoolin  (None, 43, 43, 64)        0         
+ g2D)                                                            
+                                                                 
+ conv2d_7 (Conv2D)           (None, 41, 41, 128)       73856     
+                                                                 
+ max_pooling2d_6 (MaxPoolin  (None, 20, 20, 128)       0         
+ g2D)                                                            
+                                                                 
+ conv2d_8 (Conv2D)           (None, 18, 18, 256)       295168    
+                                                                 
+ max_pooling2d_7 (MaxPoolin  (None, 9, 9, 256)         0         
+ g2D)                                                            
+                                                                 
+ conv2d_9 (Conv2D)           (None, 7, 7, 256)         590080    
+                                                                 
+ flatten_1 (Flatten)         (None, 12544)             0         
+                                                                 
+ dropout (Dropout)           (None, 12544)             0         
+                                                                 
+ dense_1 (Dense)             (None, 1)                 12545     
+                                                                 
+=================================================================
+Total params: 991041 (3.78 MB)
+Trainable params: 991041 (3.78 MB)
+Non-trainable params: 0 (0.00 Byte)
+_________________________________________________________________
+```
+
+그 다음 이 네트워크를 훈련할 때 사용한 이미지가 아닌 다른 고양이 사진 하나를 입력 이미지로 선택한다.
+
+**코드 9-6. 1개의 이미지 전처리하기**
+```
+from tensorflow import keras
+import numpy as np
+
+img_path = keras.utils.get_file(
+    fname="cat.jpg",
+    origin="https://img-datasets.s3.amazonaws.com/cat.jpg",
+)
+
+def get_img_array(img_path, target_size):
+    img = keras.utils.load_img(img_path, target_size=target_size)
+    array = keras.utils.img_to_array(img)
+    array = np.expand_dims(array, axis=0)
+    return array
+
+img_tensor = get_img_array(img_path, target_size=(180, 180))
+```
+
+**코드 9-7. 테스트 이미지 출력하기**
+```
+import matplotlib.pyplot as plt
+
+plt.axis("off")
+plt.imshow(img_tensor[0].astype("uint8"))
+plt.show()
+```
+
+![테스트 고양이 이미지](image-68.png)
+
+이미지 배치를 입력으로 받아 모든 합성곱과 풀링 층의 활성화를 출력하는 케라스 모델을 만든다.
+
+**코드 9-8. 층 활성화를 반환하는 모델 만들기**
+```
+from tensorflow.keras import layers
+
+layer_outputs = []
+layer_names = []
+for layer in model.layers:
+    if isinstance(layer, (layers.Conv2D, layers.MaxPooling2D)):
+        layer_outputs.append(layer.output)
+        layer_names.append(layer.name)
+activation_model = keras.Model(inputs=model.input, outputs=layer_outputs)
+```
+
+입력 이미지가 주입되면 이 모델은 원본 모델의 활성화 값을 반환한다. 이 모델은 하나의 다중 출력 모델으로 하나의 입력에 대해 9개의 출력을 가진다.
+
+**코드 9-9. 층 활성화 계산하기**
+```
+activations = activation_model.predict(img_tensor)
+```
+
+다음은 고양이 이미지에 대한 첫 번째 합성곱 층의 활성화 값이다.
+
+```
+>>> first_layer_activation = activations[0]
+>>> print(first_layer_activation.shape)
+(1, 178, 178, 32)
+```
+
+원본 모델의 첫 번째 층 활성화 중에서 다섯 번째 채널을 그려보자.
+
+**코드 9-10. 다섯 번째 채널 시각화하기**
+```
+import matplotlib.pyplot as plt
+
+plt.matshow(first_layer_activation[0, :, :, 4], cmap="viridis")
+plt.show()
+```
+
+![테스트 고양이 이미지에서 첫 번째 층의 활성화 중 다섯 번째 채널](image-69.png)
+
+이제 네트워크의 모든 활성화를 시각화해 보자. 각 층의 활성화에 있는 모든 채널을 그리기 위해 하나의 큰 이미지 그리드(grid)에 추출한 결과를 나란히 쌓는다.
+
+**코드 9-11. 모든 층의 활성화에 있는 전체 채널 시각화하기**
+```
+images_per_row = 16
+for layer_name, layer_activation in zip(layer_names, activations):
+    n_features = layer_activation.shape[-1]
+    size = layer_activation.shape[1]
+    n_cols = n_features // images_per_row
+    display_grid = np.zeros(((size + 1) * n_cols - 1, images_per_row * (size + 1) - 1))
+    
+    for col in range(n_cols):
+        for row in range(images_per_row):
+            channel_index = col * images_per_row + row
+            channel_image = layer_activation[0, :, :, channel_index].copy()
+            if channel_image.sum() != 0:
+                channel_image -= channel_image.mean()
+                channel_image /= channel_image.std()
+                channel_image *= 64
+                channel_image += 128
+            channel_image = np.clip(channel_image, 0, 255).astype("uint8")
+            display_grid[
+                col * (size + 1): (col + 1) * size + col,
+                row * (size + 1): (row + 1) * size + row
+            ] = channel_image
+    scale = 1. / size
+
+    plt.figure(figsize=(scale * display_grid.shape[1], scale * display_grid.shape[0]))
+    plt.title(layer_name)
+    plt.grid(False)
+    plt.axis("off")
+    plt.imshow(display_grid, aspect="auto", cmap="viridis")
+```
+
+![테스트 고양이 이미지에서 각 층의 활성화에 있는 모든 채널 1](image-70.png)
+![테스트 고양이 이미지에서 각 층의 활성화에 있는 모든 채널 2](image-71.png)
+![테스트 고양이 이미지에서 각 층의 활성화에 있는 모든 채널 3](image-72.png)
+![테스트 고양이 이미지에서 각 층의 활성화에 있는 모든 채널 4](image-73.png)
+![테스트 고양이 이미지에서 각 층의 활성화에 있는 모든 채널 5](image-74.png)
+![테스트 고양이 이미지에서 각 층의 활성화에 있는 모든 채널 6](image-75.png)
+![테스트 고양이 이미지에서 각 층의 활성화에 있는 모든 채널 7](image-76.png)
+![테스트 고양이 이미지에서 각 층의 활성화에 있는 모든 채널 8](image-77.png)
+![테스트 고양이 이미지에서 각 층의 활성화에 있는 모든 채널 9](image-78.png)
+
+몇 가지 주목할 내용은 다음과 같다.
+
+- 첫 번째 층은 여러 종류의 에지 감지기를 모아놓은 것 같다. 이 단계의 활성화에는 초기 이미지의 거의 모든 정보가 유지된다.
+- 층이 깊어질수록 활성화는 점점 더 추상적으로 되고 시각적으로 이해하기 어려워진다. 고양이 귀, 고양이 눈처럼 고수준 개념을 인코딩하기 시작한다. 깊은 층의 표현은 이미지의 시각적 콘텐츠에 관한 정보가 점점 줄어들고 이미지의 클래스에 관한 정보가 점점 증가한다.
+- 비어 있는 활성화가 층이 깊어짐에 따라 늘어난다. 첫 번째 층에서는 거의 모든 필터가 입력 이미지에 활성화되었지만 층을 올라가면서 활성화되지 않는 필터들이 생긴다. 이는 필터에 인코딩된 패턴이 입력 이미지에 나타나지 않았다는 것을 의미한다.
+
+사람과 동물이 세상을 인지하는 방식이 이와 비슷하다. 우리 뇌는 시각적 입력에서 관련성이 적은 요소를 필터링하여 고수준 개념으로 변환한다. 이렇게 완전히 추상적으로 학습하는 모습은 심층 신경망이 깊어질 수록 특정 입력에 관한 정보보다는 타깃에 관한 정보가 더 늘어나는 것과 비슷하다.
+
+### 9.4.2 컨브넷 필터 시각화하기
+
+각 필터가 반응하는 시각적 패턴을 그려봄으로써 컨브넷이 학습한 필터를 조사할 수도 있다. 빈 입력 이미지에서 시작해 특정 필터의 응답을 최대화하기 위해 컨브넷 입력 이미지에 경사 상승법을 적용한다. 그러면 결과적으로 입력 이미지는 필터가 최대로 응답하는 이미지가 된다.
+
+이 실습에는 ImageNet에서 사전 학습된 Xception 모델의 필터를 사용한다. 전체 과정은 간단한데, 먼저 특정 합성곱 층의 한 필터 값을 최대화하는 손실 함수를 정의한다. 활성화 값을 최대화하기 위해 입력 이미지를 변경하도록 확률적 경사 상승법을 사용한다. 이는 `GradientTape` 객체를 사용하여 저수준 훈련 루프를 구현하는 예이다.
+
+먼저 Xception 모델을 만든다.
+
+**코드 9-12. Xception 합성곱 기반 모델 만들기**
+```
+model = keras.applications.xception.Xception(
+    weights="imagenet",
+    include_top=False,
+)
+```
+
+이 모델의 합성곱 층인 `Conv2D`, `SeparableConv2D` 층에 관심이 있으므로 층의 이름을 출력해 보자.
+
+**코드 9-13. Xception에 있는 모든 합성곱 층의 이름 출력하기**
+```
+for layer in model.layers:
+    if isinstance(layer, (keras.layers.Conv2D, keras.layers.SeparableConv2D)):
+        print(layer.name)
+```
+
+```
+block1_conv1
+block1_conv2
+block2_sepconv1
+block2_sepconv2
+conv2d
+block3_sepconv1
+block3_sepconv2
+conv2d_1
+block4_sepconv1
+block4_sepconv2
+conv2d_2
+block5_sepconv1
+block5_sepconv2
+block5_sepconv3
+block6_sepconv1
+block6_sepconv2
+block6_sepconv3
+block7_sepconv1
+block7_sepconv2
+block7_sepconv3
+block8_sepconv1
+block8_sepconv2
+block8_sepconv3
+block9_sepconv1
+block9_sepconv2
+block9_sepconv3
+block10_sepconv1
+block10_sepconv2
+block10_sepconv3
+block11_sepconv1
+block11_sepconv2
+block11_sepconv3
+block12_sepconv1
+block12_sepconv2
+block12_sepconv3
+block13_sepconv1
+block13_sepconv2
+conv2d_3
+block14_sepconv1
+block14_sepconv2
+```
+
+Xception은 여러 개의 합성곱 층을 담은 블록으로 구성되어 있다.
+
+이제 특정 층의 출력을 반환하는 두 번째 모델, 특성 추출 모델을 만들어 보자. 함수형 API를 사용한 모델이므로 분석하기 용이하다. 한 층의 output을 추출하여 새 모델에 재사용할 수 있다.
+
+**코드 9-14. 특성 추출 모델 만들기**
+```
+layer_name = "block3_sepconv1"
+layer = model.get_layer(name=layer_name)
+feature_extractor = keras.Model(inputs=model.input, outputs=layer.output)
+```
+
+이 모델을 사용하려면 어떤 입력 데이터에서 모델을 호출하면 된다. Xception 모델의 입력은 `keras.applications.xception.preprocess_input` 함수로 전처리되어야 한다.
+
+**코드 9-15. 특성 추출 모델 사용하기**
+```
+activation = feature_extractor(keras.applications.xception.preprocess_input(img_tensor))
+```
+
+특성 추출 모델을 사용해 입력 이미지가 층의 필터를 얼마나 활성화하는지 정량화된 스칼라 값을 반환하는 함수를 정의한다. 이 함수는 경사 상승법 과정 동안 최대화할 손실 함수가 된다.
+
+```
+import tensorflow as tf
+
+def compute_loss(image, filter_index):
+    activation = feature_extractor(image)
+    filter_activation = activation[:, 2:-2, 2:-2, filter_index]
+    return tf.reduce_mean(filter_activation)
+```
+
+`GradientTape`를 사용하여 경사 상승법 단계를 구성한다. 경사 상승법 과정을 부드럽게 하기 위해 그레이디언트 텐서를 L2 노름으로 나누어 정규화한다. 이렇게 하면 입력 이미지에 적용할 수정량의 크기를 항상 일정 범위 안에 놓을 수 있다.
+
+**코드 9-16. 경사 상승법을 사용한 손실 최대화**
+```
+@tf.function
+def gradient_ascent_step(image, filter_index, learning_rate):
+    with tf.GradientTape() as tape:
+        tape.watch(image)
+        loss = compute_loss(image, filter_index)
+    grads = tape.gradient(loss, image)
+    grads = tf.math.l2_normalize(grads)
+    image += learning_rate * grads
+    return image
+```
+
+이제 층의 이름과 필터 인덱스를 입력으로 받고 지정된 필터의 활성화를 최대화하는 패턴을 나타내는 텐서를 반환하는 파이썬 함수를 만든다.
+
+**코드 9-17. 필터 시각화 생성 함수**
+```
+img_width = 200
+img_height = 200
+
+def generate_filter_pattern(filter_index):
+    iterations = 30
+    learning_rate = 10.
+    image = tf.random.uniform(
+        minval = 0.4,
+        maxval = 0.6,
+        shape=(1, img_width, img_height, 3),
+    )
+    for i in range(iterations):
+        image = gradient_ascent_step(image, filter_index, learning_rate)
+    return image[0].numpy()
+```
+
+결과 이미지 텐서는 (200, 200, 3) 크기의 부동 소수점 텐서이다. 이 텐서 값은 [0, 255] 범위의 정수가 아니므로 후처리하는 함수를 정의한다.
+
+**코드 9-18. 텐서를 이미지로 변환하기 위한 유틸리티 함수**
+```
+def deprocess_image(image):
+    image -= image.mean()
+    image /= image.std()
+    image *= 64
+    image += 128
+    image = np.clip(image, 0, 255).astype("uint8")
+    image = image[25:-25, 25:-25, :]
+    return image
+```
+
+함수를 실행한다.
+
+```
+plt.axis("off")
+plt.imshow(deprocess_image(generate_filter_pattern(filter_index=2)))
+plt.show()
+```
+
+![block3_sepconv1 층에 있는 세 번째 채널이 최대로 반응하는 패턴](image-79.png)
+
+`block3_sepconv1` 층에 있는 세 번째 필터는 마치 물이나 털 같은 수평 패턴에 반응하는 것처럼 보인다.
+
+이제 층의 모든 필터를 시각화하거나 모델에 있는 모든 층의 필터를 시각화할 수 있다.
+
+**코드 9-19. 층에 있는 모든 필터의 응답 패턴에 대한 그리드 생성하기**
+```
+all_images = []
+for filter_index in range(64):
+    print(f"{filter_index}번 필터 처리 중")
+    image = deprocess_image(generate_filter_pattern(filter_index))
+    all_images.append(image)
+    
+margin = 5
+n = 8
+cropped_width = img_width - 25 * 2
+cropped_height = img_height - 25 * 2
+width = n * cropped_width + (n - 1) * margin
+height = n * cropped_height + (n - 1) * margin
+stitched_filters = np.zeros((width, height, 3))
+
+for i in range(n):
+    for j in range(n):
+        image = all_images[i * n + j]
+        stitched_filters[
+            (cropped_width + margin) * i : (cropped_width + margin) * i + cropped_width,
+            (cropped_height + margin) * j : (cropped_height + margin) * j + cropped_height,
+            :,
+        ] = image
+        
+keras.utils.save_img(f"filters/filters_for_layer_{layer_name}.png", stitched_filters)
+```
+
+![층의 필터 패턴](image-80.png)
+
+컨브넷의 각 층은 필터의 조합으로 입력을 표현할 수 있는 일련의 필터를 학습한다. 이는 푸리에 변환(Fourier transform)을 사용하여 신호를 일련의 코사인 함수로 분해할 수 있는 것과 비슷하다. 컨브넷 필터들은 모델의 층이 깊어질수록 점점 더 복잡해지고 개선된다.
+
+- 모델에 있는 첫 번째 층의 필터는 간단한 대각선 방향의 에지와 색깔(또는 어떤 경우에 색깔이 있는 에지)을 인코딩한다.
+- 조금 더 나중에 있는 층의 필터는 에지나 색깔의 조합으로 만들어진 간단한 질감을 인코딩한다.
+- 더 뒤에 있는 층의 필터는 자연적인 이미지에서 찾을 수 있는 질감을 닮아 가기 시작한다.
+
+### 9.4.3 클래스 활성화의 히트맵 시각화하기
+
+이 방법은 이미지의 어느 부분이 컨브넷의 최종 분류 결정에 기여하는지 이해하는 데 유용하다. **모델 해석 가능성**(model interpretability)이라고 부르는 분야로, 분류에 실수가 있는 경우 컨브넷의 결정 과정을 디버깅하는 데 도움이 된다. 또한, 이미지에 특정 물체가 있는 위치를 파악하는 데 사용할 수도 있다.
+
+이러한 종류의 시각화 기법을 **클래스 활성화 맵**(Class Activation Map, CAM) 시각화라고 부른다. 클래스 활성화 히트맵은 특정 출력 클래스에 대해 입력 이미지의 모든 위치를 계산한 2D 점수 그리드이다. 클래스에 대해 각 위치가 얼마나 중요한지 알려준다.
+
+여기에서 사용할 구체적인 구현은 "Grad-CAM: Visual Explanations from Deep Networks via Gradient-based Localization"에 기술되어 있다.
+
+`Grad-CAM`은 입력 이미지가 주어지면 합성곱 층에 있는 특성 맵의 출력을 추출한다. 그 다음 특성 맵의 모든 채널 출력에 채널에 대한 클래스의 그레이디언트 평균을 곱한다. 이는 '**입력 이미지가 각 채널을 활성화하는 정도**'에 대한 공간적인 맵을 '**클래스에 대한 각 채널의 중요도**'로 가중치를 부여하여 '**입력 이미지가 클래스를 활성화하는 정도**'에 대한 공간적인 맵을 만드는 것이다.
+
+사전 훈련된 Xception 모델을 다시 사용하여 이 기법을 시연한다.
+
+**코드 9-20. 사전 훈련된 가중치로 Xception 네트워크 로드하기**
+```
+model = keras.applications.xception.Xception(weights="imagenet")
+```
+
+초원을 걷는 어미와 새끼 아프리카 코끼리 이미지를 적용한다. 이 이미지를 Xception 모델이 인식할 수 있도록 299X299 크기로 변경하고, 넘파이 float32 텐서로 바꾼 후 전처리 함수를 적용해 변환한다.
+
+**코드 9-21. Xception 모델에 맞게 입력 이미지 전처리하기**
+```
+img_path = keras.utils.get_file(
+    fname="elephant.jpg",
+    origin="https://img-datasets.s3.amazonaws.com/elephant.jpg"
+)
+
+def get_img_array(img_path, target_size):
+    img = keras.utils.load_img(img_path, target_size=target_size)
+    array = keras.utils.img_to_array(img)
+    array = np.expand_dims(array, axis=0)
+    array = keras.applications.xception.preprocess_input(array)
+    return array
+
+img_array = get_img_array(img_path, target_size=(299, 299))
+```
+
+![아프리카 코끼리 테스트 이미지](image-81.png)
