@@ -983,3 +983,127 @@ img_array = get_img_array(img_path, target_size=(299, 299))
 ```
 
 ![아프리카 코끼리 테스트 이미지](image-81.png)
+
+이제 이 이미지에서 사전 훈련된 네트워크를 실행하고 예측 벡터를 이해하기 쉽게 디코딩한다.
+
+```
+>>> preds = model.predict(img_array)
+>>> print(keras.applications.xception.decode_predictions(preds, top=3)[0])
+[('n02504458', 'African_elephant', 0.8699392), ('n01871265', 'tusker', 0.07695647), ('n02504013', 'Indian_elephant', 0.023541797)]
+```
+
+이 이미지에 대한 상위 3개의 예측 클래스는 다음과 같다.
+
+- 아프리카 코끼리(87%)
+- 코끼리(7%)
+- 인도 코끼리(2%)
+
+예측 벡터에서 최대로 활성화된 항목은 아프리카 코끼리이다.
+
+이미지에서 가장 아프리카 코끼리와 같은 부위를 시각화하기 위해 Grad-CAM 처리 과정을 구현한다.
+
+먼저 입력 이미지를 마지막 합성곱 층의 활성화에 매핑하는 모델을 만든다.
+
+**코드 9-22. 마지막 합성곱 출력을 반환하는 모델 만들기**
+```
+last_conv_layer_name = "block14_sepconv2_act"
+classifier_layer_names = [
+    "avg_pool",
+    "predictions",
+]
+last_conv_layer = model.get_layer(last_conv_layer_name)
+last_conv_layer_model = keras.Model(inputs=model.inputs, outputs=last_conv_layer.output)
+```
+
+그 다음 마지막 합성곱 층의 활성화를 최종 클래스 예측에 매핑하는 모델을 만든다.
+
+**코드 9-23. 마지막 합성곱 출력 위에 있는 분류기에 적용하기 위한 모델 만들기**
+```
+classifier_input = keras.Input(shape=last_conv_layer.output.shape[1:])
+x = classifier_input
+for layer_name in classifier_layer_names:
+    x = model.get_layer(layer_name)(x)
+classifier_model = keras.Model(inputs=classifier_input, outputs=x)
+```
+
+그 다음 마지막 합성곱 층의 활성화에 대한 최상위 예측 클래스의 그레이디언트를 계산한다.
+
+**코드 9-24. 최상위 예측 클래스의 그레이디언트 계산하기**
+```
+import tensorflow as tf
+
+with tf.GradientTape() as tape:
+    last_conv_layer_output = last_conv_layer_model(img_array)
+    tape.watch(last_conv_layer_output)
+    preds = classifier_model(last_conv_layer_output)
+    top_pred_index = tf.argmax(preds[0])
+    top_class_channel = preds[:, top_pred_index]
+    
+grads = tape.gradient(top_class_channel, last_conv_layer_output)
+```
+
+이제 그레이디언트 텐서를 평균하고 중요도 가중치를 적용하여 클래스 활성화 히트맵을 만든다.
+
+**코드 9-25. 그레이디언트를 평균하고 채널 중요도 가중치 적용하기**
+```
+pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2)).numpy()
+last_conv_layer_output = last_conv_layer_output.numpy()[0]
+for i in range(pooled_grads.shape[-1]):
+    last_conv_layer_output[:, :, i] *= pooled_grads[i]
+heatmap = np.mean(last_conv_layer_output, axis=-1)
+```
+
+시각화를 위해 히트맵을 0과 1 사이로 정규화한다.
+
+**코드 9-26. 히트맵 후처리하기**
+```
+heatmap = np.maximum(heatmap, 0)
+heatmap /= np.max(heatmap)
+plt.matshow(heatmap)
+plt.show()
+```
+
+![클래스 활성화 히트맵](image-82.png)
+
+마지막으로 히트맵에 원본 이미지를 겹친 이미지를 만든다.
+
+**코드 9-27. 원본 이미지 위에 히트맵 그리기**
+```
+import matplotlib.cm as cm
+
+img = keras.utils.load_img(img_path)
+img = keras.utils.img_to_array(img)
+heatmap = np.uint8(255 * heatmap)
+
+jet = cm.get_cmap("jet")
+jet_colors = jet(np.arange(256))[:, :3]
+jet_heatmap = jet_colors[heatmap]
+
+jet_heatmap = keras.utils.array_to_img(jet_heatmap)
+jet_heatmap = jet_heatmap.resize((img.shape[1], img.shape[0]))
+jet_heatmap = keras.utils.img_to_array(jet_heatmap)
+
+superimposed_img = jet_heatmap * 0.4 + img
+superimposed_img = keras.utils.array_to_img(superimposed_img)
+
+save_path = "elephant_cam.jpg"
+superimposed_img.save(save_path)
+```
+
+![테스트 이미지에 겹친 아프리카 코끼리 클래스 활성화 히트맵](../Codes/elephant_cam.jpg)
+
+이 시각화 기법은 2개의 중요한 질문에 대한 답을 제공한다.
+
+- 왜 네트워크가 이 이미지에 아프리카 코끼리가 있다고 생각하는가?
+- 아프리카 코끼리가 사진 어디에 있는가?
+
+특히 코끼리 새끼의 귀가 강하게 활성화되었는데, 아마도 이것은 네트워크가 아프리카 코끼리와 인도 코끼리의 차이를 구분하는 방법일 것이다.
+
+
+
+## 9.5 요약
+
+- 딥러닝으로 다룰 수 있는 3개의 주요 컴퓨터 비전 작업은 이미지 분류, 이미지 분할, 객체 탐지이다.
+- 최신 컨브넷 아키텍처의 모범 사례를 따르면 모델의 성능을 최대한 높이는 데 도움이 될 것이다. 이런 모범 사례에는 잔차 연결, 배치 정규화, 깊이별 분리 합성곱이 포함된다.
+- 컨브넷이 학습한 표현을 쉽게 분석할 수 있다. 컨브넷은 블랙박스가 아니다.
+- 클래스 활성화 히트맵을 포함하여 컨브넷이 학습한 필터를 시각화할 수 있다.
