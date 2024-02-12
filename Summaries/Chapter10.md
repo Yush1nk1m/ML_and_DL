@@ -132,3 +132,209 @@ raw_data /= std
 - **sampling_rate = 6**: 시간당 하나의 데이터 포인트가 샘플링된다. 즉, 6개의 데이터 포인트 중 하나만 사용한다.
 - **sequence_length = 120**: 이전 5일 간(120시간) 데이터를 사용한다.
 - **delay = sampling_rate * (sequence_length + 24 - 1)**: 시퀀스의 타깃은 시퀀스 끝에서 24시간 후의 온도이다.
+
+**코드 10-7. 훈련, 검증, 테스트 데이터셋 만들기**
+```
+sampling_rate = 6
+sequence_length = 120
+delay = sampling_rate * (sequence_length + 24 - 1)
+batch_size = 256
+
+train_dataset = keras.utils.timeseries_dataset_from_array(
+    raw_data[:-delay],
+    targets=temperature[delay:],
+    sampling_rate=sampling_rate,
+    sequence_length=sequence_length,
+    shuffle=True,
+    batch_size=batch_size,
+    start_index=0,
+    end_index=num_train_samples,
+)
+
+val_dataset = keras.utils.timeseries_dataset_from_array(
+    raw_data[:-delay],
+    targets=temperature[delay:],
+    sampling_rate=sampling_rate,
+    sequence_length=sequence_length,
+    shuffle=True,
+    batch_size=batch_size,
+    start_index=num_train_samples,
+    end_index=num_train_samples + num_val_samples,
+)
+
+test_dataset = keras.utils.timeseries_dataset_from_array(
+    raw_data[:-delay],
+    targets=temperature[delay:],
+    sampling_rate=sampling_rate,
+    sequence_length=sequence_length,
+    shuffle=True,
+    batch_size=batch_size,
+    start_index=num_train_samples + num_val_samples,
+)
+```
+
+각 데이터셋은 (samples, targets) 크기의 튜플을 반환한다. `samples`는 256개의 샘플로 이루어진 배치이다. 각 샘플은 연속된 120시간의 입력 데이터를 담고 있다. `targets`는 256개의 타깃 온도에 해당하는 배열이다. 샘플들은 랜덤하게 섞여 있기 때문에 연속된 두 샘플이 시간적으로 가깝다는 보장은 없다.
+
+**코드 10-8. 훈련 데이터셋의 배치 크기 확인하기**
+```
+>>> for samples, targets in train_dataset:
+>>>     print("샘플 크기:", samples.shape)
+>>>     print("타깃 크기:", targets.shape)
+>>>     break
+샘플 크기: (256, 120, 14)
+타깃 크기: (256,)
+```
+
+### 10.2.2 상식 수준의 기준점
+
+딥러닝 모델 사용 전 간단한 상식 수준의 해법을 시도해 보자. 이는 정상적인 문제인지 확인하기 위한 용도이며 고수준 머신 러닝 모델이라면 뛰어넘어야 할 기준점이 된다.
+
+시계열 데이터는 연속성이 있고 일자별로 주기성을 가진다고 가정할 수 있다. 그렇기 때문에 상식 수준의 해결책은 지금으로부터 24시간 후의 온도는 지금과 동일하다고 예측하는 것이다. 이 방법을 다음과 같이 정의된 평균 절댓값 오차(MAE)로 평가해 볼 것이다.
+
+```
+np.mean(np.abs(preds - targets))
+```
+
+**코드 10-9. 상식 수준 모델의 MAE 계산하기**
+```
+def evaluate_naive_method(dataset):
+    total_abs_err = 0.
+    samples_seen = 0
+    for samples, targets in dataset:
+        preds = samples[:, -1, 1] * std[1] + mean[1]
+        total_abs_err += np.sum(np.abs(preds - targets))
+        samples_seen += samples.shape[0]
+    return total_abs_err / samples_seen
+
+print(f"검증 MAE: {evaluate_naive_method(val_dataset):.2f}")
+print(f"테스트 MAE: {evaluate_naive_method(test_dataset):.2f}")
+```
+
+상식 수준의 모델은 섭씨 2.44도의 검증 MAE와 2.62도의 테스트 MAE를 달성했다. 따라서 24시간 후의 온도를 항상 현재와 같다고 가정하면 평균적으로 2.5도 정도 차이가 날 것이다.
+
+### 10.2.3 기본적인 머신 러닝 모델 시도해 보기
+
+RNN처럼 복잡하고 연산 비용이 많이 드는 모델을 시도하기 전 간단하고 손쉽게 만들 수 있는 머신 러닝 모델을 먼저 만드는 것이 좋다. 이를 바탕으로 더 복잡한 방법을 도입하는 근거가 마련되고 실제적인 이득도 얻게 될 것이다.
+
+데이터를 펼쳐서 2개의 Dense 층을 통과시키는 완전 연결 네트워크를 먼저 만들어 보자. 전형적인 회귀 문제이므로 마지막 Dense 층에는 활성화 함수를 두지 않는다. 손실 함수로는 MAE 대신 평균 제곱 오차(MSE)를 사용한다. 이는 원점에서 미분 가능하기 때문에 경사 하강법에 잘 맞는다. compile() 메소드에 모니터링할 지표로 MAE를 추가한다.
+
+**코드 10-10. 밀집 연결 모델 훈련하고 평가하기**
+```
+from tensorflow import keras
+from tensorflow.keras import layers
+
+inputs = keras.Input(shape=(sequence_length, raw_data.shape[-1]))
+x = layers.Flatten()(inputs)
+x = layers.Dense(16, activation="relu")(x)
+outputs = layers.Dense(1)(x)
+model = keras.Model(inputs=inputs, outputs=outputs)
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint("jena_dense.keras", save_best_only=True)
+]
+
+model.compile(optimizer="rmsprop", loss="mse", metrics=["mae"])
+
+history = model.fit(
+    train_dataset,
+    epochs=10,
+    validation_data=val_dataset,
+    callbacks=callbacks,
+)
+
+model = keras.models.load_model("jena_dense.keras")
+
+print(f"테스트 MAE: {model.evaluate(test_dataset)[1]:.2f}")
+```
+
+테스트 MAE는 2.59이다. 훈련과 검증 MAE 곡선도 그려 보자.
+
+**코드 10-11. 결과 그래프 그리기**
+```
+import matplotlib.pyplot as plt
+
+mae = history.history["mae"]
+val_mae = history.history["val_mae"]
+epochs = range(1, len(mae) + 1)
+
+plt.figure()
+plt.plot(epochs, mae, "bo", label="Training MAE")
+plt.plot(epochs, val_mae, "b", label="Validation MAE")
+plt.title("Training and validation MAE")
+plt.legend()
+plt.show()
+```
+
+![예나 온도 예측 작업에서 간단한 밀집 연결 네트워크의 훈련과 검증 MAE](image-85.png)
+
+이 문제는 기준 모델의 성능을 앞지르기가 쉽지 않은 것으로 보인다. 이것은 머신 러닝이 가진 심각한 제약 사항과 관련된다. 상식 수준의 모델은 가설 공간에서 표현할 수 있는 수백만 가지의 가중치 조합 중 하나이기 때문에 기술적으로 경사 하강법이 이를 못 찾을 가능성이 훨씬 높다. 이것이 좋은 특성 공학 및 문제와 관련된 아키텍처 구조를 활용하는 것이 중요한 이유이다. 즉, 모델이 찾아야 할 것을 정확히 알려주어야 한다.
+
+### 10.2.4 1D 합성곱 모델 시도해 보기
+
+입력 시퀀스는 일별 주기를 가지기 때문에 합성곱 모델을 적용할 수 있다. 시간 축에 대한 합성곱은 다른 날에 있는 동일한 표현을 재사용할 수 있다. 마치 공간 방향 합성곱이 이미지에서 다른 위치에 있는 같은 표현을 재사용하는 것과 같다.
+
+`Conv2D`, `SeparableConv2D` 층은 작은 윈도우로 2D 그리드 위를 이동하면서 입력을 바라본다. `Conv1D`, `SeparableConv1D`는 1D 윈도우를 사용하여 입력 시퀀스를 슬라이딩한다. `Conv3D` 층은 정육면체 윈도우를 사용하여 입력 볼륨 위를 슬라이딩한다.
+
+1D 컨브넷 역시 평행 이동 불변성 가정을 따르는 어떤 시퀀스 데이터에도 잘 맞는다. 즉, 시퀀스 위로 윈도우를 슬라이딩하면 윈도우 안의 내용이 위치에 상관없이 동일한 성질을 가진다는 의미이다.
+
+이를 온도 예측 문제에 적용한다. 초기 윈도우 길이는 24로 정하여 한 주기에 24시간의 데이터를 보게 한다. `MaxPooling1D` 층으로 시퀀스를 다운샘플링하기 때문에 그에 맞추어 윈도우의 크기를 줄인다.
+
+```
+from tensorflow import keras
+from tensorflow.keras import layers
+
+inputs = keras.Input(shape=(sequence_length, raw_data.shape[-1]))
+x = layers.Conv1D(8, 24, activation="relu")(inputs)
+x = layers.MaxPooling1D(2)(x)
+x = layers.Conv1D(8, 12, activation="relu")(x)
+x = layers.MaxPooling1D(2)(x)
+x = layers.Conv1D(8, 6, activation="relu")(x)
+x = layers.GlobalAveragePooling1D()(x)
+outputs = layers.Dense(1)(x)
+
+model = keras.Model(inputs=inputs, outputs=outputs)
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint("jena_conv.keras", save_best_only=True)
+]
+
+model.compile(optimizer="rmsprop", loss="mse", metrics=["mae"])
+
+history = model.fit(
+    train_dataset,
+    epochs=10,
+    validation_data=val_dataset,
+    callbacks=callbacks,
+)
+
+model = keras.models.load_model("jena_conv.keras")
+
+print(f"테스트 MAE: {model.evaluate(test_dataset)[1]:.2f}")
+```
+
+훈련과 검증 MAE 곡선은 다음과 같다.
+
+```
+import matplotlib.pyplot as plt
+
+mae = history.history["mae"]
+val_mae = history.history["val_mae"]
+epochs = range(1, len(mae) + 1)
+
+plt.figure()
+plt.plot(epochs, mae, "bo", label="Training MAE")
+plt.plot(epochs, val_mae, "b", label="Validation MAE")
+plt.title("Training and validation MAE")
+plt.legend()
+plt.show()
+```
+
+![예나 온도 예측 작업에 적용한 1D 컨브넷의 훈련과 검증 MAE](image-86.png)
+
+이 모델은 밀집 연결 모델보다 더 성능이 나쁘다. 테스트 MAE는 3.14를 달성하여 상식 수준의 모델과의 차이가 크다. 문제점은 두 가지가 있다.
+
+- 날씨 데이터는 평행 이동 불변성 가정을 많이 따르지 않는다. 데이터에 일별 주기성이 있긴 하나 아침 데이터는 저녁이나 한밤중의 데이터와 성질이 다르다. 날씨 데이터는 매우 특정한 시간 범위에 대해서만 평행 이동 불변성을 가진다.
+- 이 데이터는 순서가 많이 중요하다. 최근 데이터가 5일 전 데이터보다 내일 온도를 예측하는 데 훨씬 더 유용하다. 1D 컨브넷은 이러한 사실을 활용할 수 없다. 특히 최대 풀링과 전역 평균 풀링 층 때문에 순서 정보가 많이 삭제된다.
+
+### 10.2.5 첫 번째 순환 신경망
+
