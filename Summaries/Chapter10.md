@@ -338,3 +338,158 @@ plt.show()
 
 ### 10.2.5 첫 번째 순환 신경망
 
+밀집 연결 모델은 시계열 데이터를 펼쳤기 때문에 입력 데이터에서 시간 개념을 잃어버렸다. 합성곱 모델은 데이터의 모든 부분을 비슷한 방식으로 처리했으며 풀링을 적용하여 순서 정보를 잃어버렸다. 이런 방법 대신 인과 관계와 순서가 의미 있는 시퀀스 데이터를 그대로 사용한다.
+
+이런 문제를 위해 특별히 고안된 신경망 구조가 순환 신경망이다. 그중에서도 LSTM(Long Short-Term Memory) 층이 오랫동안 인기가 많았다. LSTM 층을 적용해 보자.
+
+**코드 10-12. 간단한 LSTM 기반 모델**
+```
+inputs = keras.Input(shape=(sequence_length, raw_data.shape[-1]))
+x = layers.LSTM(16)(inputs)
+outputs = layers.Dense(1)(x)
+
+model = keras.Model(inputs=inputs, outputs=outputs)
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint("jena_lstm.keras", save_best_only=True)
+]
+
+model.compile(optimizer="rmsprop", loss="mse", metrics=["mae"])
+
+history = model.fit(
+    train_dataset,
+    epochs=10,
+    validation_data=val_dataset,
+    callbacks=callbacks,
+)
+
+model = keras.models.load_model("jena_lstm.keras")
+
+print(f"테스트 MAE: {model.evaluate(test_dataset)[1]:.2f}")
+```
+
+테스트 MAE가 2.56으로 드디어 기준 모델과 성능이 비슷해졌다. 검증 및 손실 MAE 그래프도 그려보자.
+
+```
+import matplotlib.pyplot as plt
+
+mae = history.history["mae"]
+val_mae = history.history["val_mae"]
+epochs = range(1, len(mae) + 1)
+
+plt.figure()
+plt.plot(epochs, mae, "bo", label="Training MAE")
+plt.plot(epochs, val_mae, "b", label="Validation MAE")
+plt.title("Training and validation MAE")
+plt.legend()
+plt.show()
+```
+
+![예나 온도 예측 작업에 사용한 LSTM 기반 모델의 훈련과 검증 MAE](image-87.png)
+
+
+
+## 10.3 순환 신경망 이해하기
+
+순환 신경망 이전에 본 모든 신경망의 공통점은 메모리가 없다는 것이다. 네트워크에 주입되는 입력은 개별적으로 처리되며 입력 간에 유지되는 상태가 없다. 이런 네트워크로 시퀀스나 시계열 데이터 포인트를 처리하려면 네트워크에 전체 시퀀스를 주입해야 한다. 즉, 전체 시퀀스를 하나의 데이터 포인트로 변환해야 한다. 예를 들어 밀집 연결 모델과 같이 5일치 데이터를 펼쳐서 하나의 큰 벡터로 만들어야 한다. 이런 네트워크를 **피드포워드 네트워크**(feedforward network)라고 한다.
+
+반면 인간은 문장을 읽을 때 이전에 나온 것을 기억하면서 단어별로, 또는 한눈에 들어오는 만큼 처리한다. 생물학적 지능은 정보 처리를 위한 내부 모델을 유지하면서 점진적으로 정보를 처리한다. 이 모델은 과거 정보를 기반으로 구축되며 새롭게 얻은 정보를 계속해서 업데이트한다.
+
+**순환 신경망**(Recurrent Neural Network, RNN)은 이와 같은 원리를 극단적으로 단순화시킨 버전이다. 시퀀스의 원소를 순회하면서 지금까지 처리한 정보를 **상태**(state)에 저장한다. RNN은 내부에 루프(loop)를 가진 신경망의 한 종류이다.
+
+![순환 신경망: 루프를 가진 네트워크](image-88.png)
+
+RNN의 상태는 2개의 서로 다른 시퀀스를 처리하는 과정 사이에 재설정된다. 따라서 하나의 시퀀스를 여전히 네트워크에 주입되는 하나의 입력으로 간주할 수 있다. 이 데이터 포인트가 한 번에 처리되지 않을 뿐이다. 그 대신 네트워크는 내부적으로 시퀀스의 원소를 순회한다.
+
+간단한 RNN 정방향 패스를 구현해 보자. 이 RNN은 (timesteps, input_features) 크기의 랭크-2 텐서로 인코딩된 벡터의 시퀀스를 입력받는다. 타임스텝을 따라 루프를 돌면서 각 타임스텝 t에서 현재 상태와 크기가 (input_features, )인 입력을 연결하여 출력을 계산한다. 그 다음 이 출력을 다음 스텝의 상태로 설정한다. 첫 번째 t에서는 이전 출력이 정의되지 않으므로 **초기 상태**(initial state)인 0 벡터로 상태를 초기화한다.
+
+RNN의 의사 코드는 다음과 같다.
+
+**코드 10-13. 의사 코드로 표현한 RNN**
+```
+state_t = 0
+for input_t in input_sequence:
+    output_t = f(input_t, state_t)
+    state_t = output_t
+```
+
+f 함수는 입력과 상태를 출력으로 변환한다. 이를 2개의 행렬 W, U 그리고 편향 벡터를 사용하는 변환으로 바꿀 수 있다. 이는 피드포워드 네트워크의 밀집 연결 층에서 수행되는 변환과 비슷하다.
+
+**코드 10-14. 좀 더 자세한 의사 코드로 표현한 RNN**
+```
+state_t = 0
+for input_t in input_sequence:
+    output_t = activation(dot(W, input_t) + dot(U, state_t) + b)
+    state_t = output_t
+```
+
+간단한 RNN의 정방향 계산을 넘파이로 구현해 보자.
+
+**코드 10-15. 넘파이로 구현한 간단한 RNN**
+```
+import numpy as np
+
+timesteps = 100
+input_features = 32
+output_features = 64
+
+inputs = np.random.random((timesteps, input_features))
+state_t = np.zeros((output_features, ))
+
+W = np.random.random((output_features, input_features))
+U = np.random.random((output_features, output_features))
+b = np.random.random((output_features, ))
+
+successive_outputs = []
+for input_t in inputs:
+    output_t = np.tanh(np.dot(W, input_t) + np.dot(U, state_t) + b)
+    successive_outputs.append(output_t)
+    state_t = output_t
+    
+final_output_sequence = np.stack(successive_outputs, axis=0)
+```
+
+요약하면 RNN은 반복할 때 이전에 계산한 정보를 재사용하는 for 루프에 지나지 않는다. RNN은 스텝(step) 함수에 의해 특화된다. 이 예에서는 스텝 함수가 다음과 같다.
+
+```
+output_t = np.tanh(np.dot(W, input_t) + np.dot(U, state_t) + b)
+```
+
+이 예에서 최종 출력의 각 타임스텝은 시간 t에서의 출력을 나타낸다. 출력 텐서의 각 타임스텝 t에는 0부터 t까지 전체 과거에 대한 정보를 담고 있다. 따라서 많은 경우 전체 출력 시퀀스가 필요하지 않고 마지막 출력만 있으면 된다.
+
+### 10.3.1 케라스의 순환 층
+
+앞서 넘파이로 간단히 구현한 RNN 과정이 실제 케라스의 `SimpleRNN` 층에 해당한다.
+
+`SimpleRNN`이 한 가지 다른 점은 하나의 시퀀스가 아닌 시퀀스의 배치를 처리한다는 것이다. 즉, (batch_size, timesteps, input_features) 크기의 입력을 받는다. 시작할 때 `Input()` 함수의 `shape` 매개변수 중 `timesteps` 항목을 None으로 지정할 수 있다. 이렇게 하면 임의의 길이를 가진 시퀀스를 처리할 수 있다.
+
+**코드 10-16. 어떤 길이의 시퀀스도 처리할 수 있는 RNN 층**
+```
+num_features = 14
+inputs = keras.Input(shape=(None, num_features))
+outputs = layers.SimpleRNN(16)(inputs)
+```
+
+이는 모델이 가변 길이 시퀀스를 처리해야 한다면 특히 유용하다. 그러나 `model.summary()`의 유용성, 일부 성능 최적화 활용 가능성을 생각한다면 시퀀스 길이가 모두 같은 경우엔 완전한 입력 크기를 지정하는 것이 좋다.
+
+케라스에 있는 모든 순환 층(`SimpleRNN`, `LSTM`, `GRU`)은 두 가지 모드로 실행할 수 있다. 각 타임스텝의 출력을 모은 전체 시퀀스((batch_size, timesteps, output_features) 크기의 랭크-3 텐서)를 반환하거나, 입력 시퀀스의 마지막 출력((batch_size, output_features) 크기의 랭크-2 텐서)만 반환할 수 있다. 두 모드는 생성자의 `return_sequences` 매개변수로 제어할 수 있다.
+
+**코드 10-17. 마지막 출력 스텝만 반환하는 RNN 층**
+```
+>>> num_features = 14
+>>> steps = 120
+>>> inputs = keras.Input(shape=(steps, num_features))
+>>> outputs = layers.SimpleRNN(16, return_sequences=False)(inputs)
+>>> print(outputs.shape)
+(None, 16)
+```
+
+**코드 10-18. 전체 출력 시퀀스를 반환하는 RNN 층**
+```
+>>> num_features = 14
+>>> steps = 120
+>>> inputs = keras.Input(shape=(steps, num_features))
+>>> outputs = layers.SimpleRNN(16, return_sequences=True)(inputs)
+>>> print(outputs.shape)
+(None, 120, 16)
+```
