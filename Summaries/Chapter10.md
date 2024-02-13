@@ -493,3 +493,209 @@ outputs = layers.SimpleRNN(16)(inputs)
 >>> print(outputs.shape)
 (None, 120, 16)
 ```
+
+네트워크의 표현력을 증가시키기 위해 여러 개의 순환 층을 차례대로 쌓는 것이 유용할 때가 있다. 이런 설정에서는 중간층들이 **전체 출력 시퀀스**를 반환하도록 설정해야 한다.
+
+**코드 10-19. 스태킹(stacking) RNN 층**
+```
+from tensorflow import keras
+from tensorflow.keras import layers
+
+inputs = keras.Input(shape=(steps, num_features))
+x = layers.SimpleRNN(16, return_sequences=True)(inputs)
+x = layers.SimpleRNN(16, return_sequences=True)(x)
+outputs = layers.SimpleRNN(16)(x)
+```
+
+`SimpleRNN`은 이론적으로는 이전의 모든 타임스텝 정보를 유지할 수 있지만, 현실적으로 그레이디언트 소실(vanishing gradient) 문제가 존재하기 때문에 긴 시간에 걸친 의존성은 학습할 수 없다.
+
+이 문제를 해결하기 위해 `LSTM`, `GRU` 층이 고안되었다.
+
+장·단기 메모리(Long Short-Term Memory, LSTM) 알고리즘은 호크라이터와 슈미트후버가 1997년에 개발했다. 이 알고리즘은 그레이디언트 소실 문제에 대한 연구의 결정체이다. 처리할 시퀀스에 나란히 작동하는 컨베이어 벨트가 있는 것처럼, 시퀀스의 어느 지점에서 추출된 정보가 필요한 시점의 타임스텝으로 이동하여 떨구어진다. 이처럼 나중을 위해 앞의 정보를 저장함으로써 오래된 시그널이 점차 소실되는 것을 막아준다. 이는 **잔차 연결**과 비슷한 아이디어이다.
+
+일반적인 `SimpleRNN` 구조를 생각해 보자. `LSTM`은 타임스텝 n에서 `SimpleRNN` 셀을 가로지르는 이동 상태 c_t가 정의된다. n+1에서는 c_t+1, n-1에서는 c_t-1이다. 이동 상태는 밀집 연결 층과 같은 변환을 통해 입력 연결과 순환 연결(상태)에 연결된다.
+
+데이터 흐름에서 다음 이동 상태(c_t+1)가 계산되는 방식은 3개의 서로 다른 변환이 관련된다. 3개 모두 `SimpleRNN`과 같은 형태를 가진다.
+
+```
+y = activation(dot(state_t, U) + dot(input_t, W) + b)
+```
+
+하지만 3개의 변환 모두 자신만의 가중치 행렬을 가진다. 서로 다른 행렬을 i, f, k로 구분하면 다음과 같은 의사 코드를 작성할 수 있다.
+
+**코드 10-20. LSTM 구조의 의사 코드(1/2)**
+```
+output_t = activation(c_t) * activation(dot(input_t, Wo) + dot(state_t, Uo) + bo)
+i_t = activation(dot(state_t, Ui) + dot(input_t, Wi) + bi)
+f_t = activation(dot(state_t, Uf) + dot(input_t, Wf) + bf)
+k_t = activation(dot(state_t, Uk) + dot(input_t, Wk) + bk)
+```
+
+`i_t`, `f_t`, `k_t`를 결합하여 새로운 이동 상태(c_t+1)를 구한다.
+
+**코드 10-21. LSTM 구조의 의사 코드(2/2)**
+```
+c_t+1 = i_t * k_t + c_t * f_t
+```
+
+`c_t`와 `f_t`의 곱셈은 이동을 위한 데이터 흐름에서 관련이 적은 정보를 의도적으로 삭제하는 것이다. 한편, `i_t`와 `k_t`는 현재에 대한 정보를 제공하고 이동 트랙을 새로운 정보로 업데이트한다. 하지만 셀의 가중치에 따라 연산이 크게 바뀌기 때문에 이러한 연산 조합이 엔지니어링적인 설계가 아닌 가설 공간의 제약 조건이라고 해석하는 것이 낫다.
+
+LSTM 셀의 구체적인 구조에 대해선 이해할 필요가 없다. 그냥 LSTM 셀이 과거 정보를 나중에 다시 주입하여 그레이디언트 소실 문제를 해결한다는 것만 기억하면 된다.
+
+
+
+## 10.4 순환 신경망의 고급 사용법
+
+이 절에서는 딥러닝 시퀀스 모델을 최대한 활용하기 위해 다음과 같은 내용을 다룬다.
+
+- **순환 드롭아웃**(recurrent dropout): 드롭아웃의 한 종류로 순환 층에서 과대적합을 방지하기 위해 사용한다.
+- **스태킹 순환 층**(stacking recurrent layer): 모델의 표현 능력(representational power)을 증가시킨다(그 대신 계산 비용이 많이 든다).
+- **양방향 순환 층**(bidirectional recurrent layer): 순환 네트워크에 같은 정보를 다른 방향으로 주입하여 정확도를 높이고 기억을 좀 더 오래 유지시킨다.
+
+### 10.4.1 과대적합을 감소하기 위해 순환 드롭아웃 사용하기
+
+상식 수준의 기준점에 근사한 첫 번째 모델인 LSTM 기반 모델을 다시 사용한다. 훈련 손실과 검증 손실을 곡선을 보면 모델이 과대적합인지 알 수 있다. 이전에 드롭아웃을 알아보았으나, 일반적인 드롭아웃 방식을 그대로 순환 신경망에 적용하는 것은 간단하지 않다.
+
+순환 층 이전에 드롭아웃을 적용하면 규제에 도움이 되는 것보다는 학습에 더 방해되는 것으로 오랫동안 알려져왔다. 그러나 2016년 야린 갈(Yarin Gal)이 베이지안 딥러닝에 관한 박사 논문에서 순환 네트워크에 적절하게 드롭아웃을 사용하는 방법을 알아낸다. 타임스텝마다 랜덤하게 드롭아웃 마스크를 변경하는 것이 아닌 동일한 드롭아웃 마스크를 모든 타임스텝에 적용해야 한다. `GRU`나 `LSTM` 같은 순환 게이트에 의해 만들어지는 표현을 규제하려면 순환 층 내부 계산에 사용된 활성화 함수에 타임스텝마다 동일한 드롭아웃 마스크를 적용해야 한다. 이러면 네트워크가 학습 오차를 타임스텝에 걸쳐 적절히 전파할 수 있다. 타임스텝마다 랜덤한 드롭아웃 마스크가 사용될 시 오차 신호가 전파되는 것을 방해하고 학습 과정에 해를 끼친다.
+
+케라스에 있는 모든 순환 층은 2개의 드롭아웃 매개변수를 가지고 있다. `dropout`은 층의 입력에 대한 드롭아웃 비율을 정하는 부동 소수점 값이고, `recurrent_dropout`은 순환 상태의 드롭아웃 비율을 정한다. 첫 번째 LSTM 예제의 `LSTM` 층에 순환 드롭아웃을 적용하여 과대적합에 어떤 영향을 미치는지 알아보자.
+
+드롭아웃 덕분에 규제를 위해 네트워크 크기에 신경 쓸 필요가 없다. 2배 더 많은 유닛을 가진 `LSTM` 층을 사용한다. 만약 규제가 없다면 이 네트워크는 시작과 동시에 과대적합될 것이다. 그러나 드롭아웃으로 규제된 네트워크는 완전히 수렴하는 데 언제나 훨씬 더 오래 걸리기 때문에 에포크를 늘려 네트워크를 훈련한다.
+
+**코드 10-22. 드롭아웃 규제를 적용한 LSTM 모델 훈련하고 평가하기**
+```
+inputs = keras.Input(shape=(sequence_length, raw_data.shape[-1]))
+x = layers.LSTM(32, recurrent_dropout=0.25)(inputs)
+x = layers.Dropout(0.5)(x)
+outputs = layers.Dense(1)(x)
+
+model = keras.Model(inputs=inputs, outputs=outputs)
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint("jena_lstm_dropout.keras", save_best_only=True)
+]
+
+model.compile(optimizer="rmsprop", loss="mse", metrics=["mae"])
+
+history = model.fit(
+    train_dataset,
+    epochs=50,
+    validation_data=val_dataset,
+    callbacks=callbacks,
+)
+```
+
+![예나 온도 예측 작업에 드롭아웃 규제를 사용한 LSTM 모델의 훈련과 검증 손실](image-89.png)
+
+괜찮은 수준의 MAE를 달성하였다.
+
+층에 순환 드롭아웃을 추가하면 cnDNN을 사용할 수 없다. 이때 RNN 층의 속도를 높이는 방법으로 층을 **언롤링**(unrolling)하는 것이 있다. 단, 입력 층의 크기가 정확히 정의되어 있어야 언롤링을 사용할 수 있다. 다음과 같이 사용한다.
+
+```
+inputs = keras.Input(shape=(sequence_length, num_features))
+x = layers.LSTM(32, recurrent_dropout=0.2, unroll=True)(inputs)
+```
+
+### 10.4.2 스태킹 순환 층
+
+과대적합은 더 이상 없지만 성능상 병목이 있는 것 같으므로 네트워크의 용량과 표현력을 늘려야 한다. 너무 많이 과대적합되지 않는 한 아직 충분한 용량에 도달한 것이 아니다.
+
+네트워크의 용량을 늘리려면 일반적으로 층에 있는 유닛의 개수를 늘리거나 층을 더 많이 추가해야 한다. 순환 층 스태킹은 더 강력한 순환 네트워크를 만드는 고전적인 방법이다.
+
+다시 한번, 케라스에서 순환 층을 차례대로 쌓으려면 모든 중간 층은 마지막 타임스텝만 출력하는 것이 아니라 전체 시퀀스(랭크-3 텐서)를 출력해야 한다. 이를 위해 `return_sequence=True`로 옵션을 지정하면 된다.
+
+드롭아웃 규제를 사용하면서 2개의 순환 층을 스태킹해 보자. `LSTM` 대신에 `GRU`(Gated Recurrent Unit)를 사용한다. `GRU`는 `LSTM` 구조의 간단하고 간소화된 버전으로 생각할 수 있다. 순환 신경망이 소규모 연구 커뮤니티에서 관심을 받기 시작할 때 2014년 조경현 등이 `GRU`를 소개했다.
+
+**코드 10-23. 드롭아웃 규제와 스태킹을 적용한 GRU 모델을 훈련하고 평가하기**
+```
+inputs = keras.Input(shape=(sequence_length, raw_data.shape[-1]))
+x = layers.GRU(32, recurrent_dropout=0.5, return_sequences=True)(inputs)
+x = layers.GRU(32, recurrent_dropout=0.5)(x)
+x = layers.Dropout(0.5)(x)
+outputs = layers.Dense(1)(x)
+
+model = keras.Model(inputs=inputs, outputs=outputs)
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint("jena_stacked_gru_dropout.keras", save_best_only=True)
+]
+
+model.compile(optimizer="rmsprop", loss="mse", metrics=["mae"])
+
+history = model.fit(
+    train_dataset,
+    epochs=50,
+    validation_data=val_dataset,
+    callbacks=callbacks,
+)
+
+model = keras.models.load_model("jena_stacked_gru_dropout.keras")
+
+print(f"테스트 MAE: {model.evaluate(test_dataset)[1]:.2f}")
+```
+
+테스트 MAE는 2.46를 달성했다. 네트워크의 용량을 늘리는 것이 도움되진 않는다고 결론지을 수 있다.
+
+![예나 온도 예측 작업에 적용한 스태킹 GRU 네트워크의 훈련과 검증 MAE](image-90.png)
+
+### 10.4.3 양방향 RNN 사용하기
+
+**앙방향 RNN**(bidirectional RNN)은 `RNN`의 한 변종으로, 특정 작업에서는 기본 `RNN`보다 훨씬 좋은 성능을 보인다. 자연어 처리에서는 맥가이버 칼에 비유될 정도로 자주 사용된다.
+
+`RNN`은 특히 순서에 민감하다. 타임스텝을 섞거나 거꾸로 하면 시퀀스에서 학습하는 표현이 완전히 바뀐다. 이는 온도 예측과 같이 순서에 의미가 있는 문제에 더 잘 맞는 이유이기도 하다. `양방향 RNN`은 `RNN`이 순서에 민감하다는 성질을 이용해 `LSTM`, `GRU` 같은 `RNN` 2개를 사용한다. 각 `RNN`은 입력 시퀀스를 시간 순서나 반대 순서의 한 방향으로 처리한 후 각 표현을 합친다. 시퀀스를 양쪽 방향으로 처리하기 때문에 `단방향 RNN`이 놓치기 쉬운 패턴을 감지할 수 있다.
+
+매우 중요한 사실은 `RNN` 층이 시간 순서대로 오래된 타임스텝이 먼저 나오도록 시퀀스를 처리하는 것이 근거 없는 결정이라는 것이다.
+
+이전의 예제에서 입력 시퀀스를 시간 차원을 따라 거꾸로 변환해 `LSTM`으로 훈련하면 상식 수준의 기준점보다도 성능이 낮게 나온다. 사실 이는 `LSTM` 층이 일반적으로 먼 과거의 데이터 포인트보다 최근의 것을 더 잘 기억하고 날씨 데이터 포인트는 최근의 것이 예측에 더 유리하기 때문에 당연한 결과이다.
+
+하지만 이런 가정이 항상 통하는 것은 아니다. 자연어 처리를 포함한 다른 많은 문제를 생각해 보면 문장 내 단어 위치가 문장 해석에 중요한 영향을 주지 않는다. 텍스트 데이터셋에서는 그러므로 순서를 뒤집어 처리해도 그렇지 않은 경우와 비슷한 성능을 보인다. 사람 역시 거꾸로 문장을 읽어도 문장을 이해하는 데 큰 어려움이 없다.
+
+머신 러닝에서는 다른 표현이 유용하다면 항상 사용할 가치가 있다. 이 표현이 많이 다를수록 오히려 데이터를 바라보는 새로운 시각을 제공하고 다른 방식에서 놓칠 수 있는 데이터의 특징을 잘 감지해낸다. 이런 표현들이 작업 성능을 올리는 데 도움을 준다. 이것이 바로 **앙상블**(ensemble) 개념이다.
+
+`양방향 RNN`은 앙상블 개념에 근거하여 시간 순서대로 처리하는 `RNN`의 성능을 향상시킨다. 입력 시퀀스를 양쪽 방향으로 바라보는 것만으로 잠재적으로 풍부한 표현을 얻고 시간 순서대로 처리할 때 놓칠 수 있는 표현을 감지할 수 있다.
+
+케라스에서는 `Bidirectional` 층을 사용하여 `양방향 RNN`을 만든다. 이 클래스는 첫 번째 매개변수로 순환 층 객체를 전달받고 그것으로 시간 순서대로 입력 시퀀스를 처리하는 객체, 반대 순서로 입력 시퀀스를 처리하는 객체를 생성한다.
+
+**코드 10-24. 양방향 LSTM 모델 훈련하고 평가하기**
+```
+inputs = keras.Input(shape=(sequence_length, raw_data.shape[-1]))
+x = layers.Bidirectional(layers.LSTM(16))(inputs)
+outputs = layers.Dense(1)(x)
+
+model = keras.Model(inputs=inputs, outputs=outputs)
+
+model.compile(optimizer="rmsprop", loss="mse", metrics=["mae"])
+
+history = model.fit(
+    train_dataset,
+    epochs=10,
+    validation_data=val_dataset,
+)
+```
+
+![예나 온도 예측 작업에 적용한 양방향 RNN 네트워크의 훈련과 검증 MAE](image-91.png)
+
+이 모델은 평범한 `LSTM` 층만큼의 성능을 보이지 못한다. 이유는 간단히 절반의 층만 예측 성능이 좋고 나머지 절반의 층은 좋지 않기 때문이다. 데이터셋이 특수하기 때문으로 시간 반대 순서로 처리하는 층이 오히려 네트워크의 용량을 2배로 늘리고 과대적합을 훨씬 더 일찍 발생시키게 된다.
+
+하지만 `양방향 RNN`은 텍스트 데이터 또는 순서가 중요하지만 사용 순서 자체는 중요하지 않은 다른 종류의 데이터에 잘 맞는다. 트랜스포머(Transformer) 구조가 등장하기 전까지는 2016년 잠시 동안 `양방향 LSTM` 층이 많은 자연어 처리 작업에서 최고 수준의 성능을 냈다.
+
+### 10.4.4 더 나아가서
+
+온도 예측 문제의 성능을 향상하기 위해 시도해 볼 수 있는 것을 나열한다.
+
+- 스태킹한 각 순환 층의 유닛 개수와 드롭아웃의 양을 조정한다.
+- RMSprop 옵티마이저의 학습률을 조정하거나 다른 옵티마이저를 사용한다.
+- 순환 층 위에 놓을 회귀 모델을 위해 하나가 아닌 여러 개의 Dense 층을 쌓는다.
+- 모델의 입력을 개선한다. 더 길거나 짧은 시퀀스를 테스트해 보거나 샘플링 간격(sampling_rate)을 바꾼다. 또는 특성 공학을 수행한다.
+
+이 책의 저자는 머신 러닝을 사용하지 않은 기준점에서 10%의 성능을 향상시키는 것이 그 데이터셋에서의 최선일 것이라고 가정한다. 
+
+
+
+## 10.5 요약
+
+- 새로운 문제를 해결할 때는 선택한 지표에서 상식 수준의 기준점을 설정하는 것이 좋다. 기준점을 가지고 있지 않으면 실제로 향상되었는지 알 수 없다.
+- 추가 비용이 합리적인지 판단하기 위해 계산 비용이 높은 모델 전에 간단한 모델을 시도한다. 이따금 간단한 모델이 최선일 때가 있다.
+- 시간 순서가 중요한 데이터, 특히 시계열 데이터가 있다면 순환 신경망이 적합하다. 시계열 데이터를 펼쳐서 처리하는 모델의 성능을 쉽게 앞지를 수 있다. 케라스에서 핵심적인 RNN 층 2개는 LSTM 층과 GRU 층이다.
+- 순환 네트워크에 드롭아웃을 사용하려면 타임스텝 동안 동일한 드롭아웃 마스크와 순환 드롭아웃 마스크를 사용해야 한다. 둘 다 케라스 순환 층에 포함되어 있다. 순환 층에 있는 recurrent_dropout 매개변수를 사용하면 된다.
+- 스태킹 RNN은 단일 RNN 층보다 더 강력한 표현 능력을 제공한다. 하지만 계산 비용이 많이 들기 때문에 항상 시도할 가치가 있지는 않다. 기계 번역과 같은 복잡한 문제에서 확실히 도움이 되지만 작고 간단한 문제에서는 항상 그렇진 않다.
