@@ -313,3 +313,323 @@ train/unsup 디렉터리도 있는데, 이 디렉터리는 필요하지 않으�
 ```
 !rm -r aclImdb/train/unsup
 ```
+
+텍스트 데이터나 이미지 데이터를 다룰 때 모델링으로 들어가기 전 항상 데이터가 어떤 모습인지 조사해야 한다. 이를 통해 실제 모델이 하는 작업에 대한 직관을 기를 수 있다.
+
+```
+>>> !cat aclImdb/train/pos/4077_10.txt
+I first saw this back in the early 90s on UK TV, i did like it then but i missed the chance to tape it, many years passed but the film always stuck with me and i lost hope of seeing it TV again, the main thing that stuck with me was the end, the hole castle part really touched me, its easy to watch, has a great story, great music, the list goes on and on, its OK me saying how good it is but everyone will take there own best bits away with them once they have seen it, yes the animation is top notch and beautiful to watch, it does show its age in a very few parts but that has now become part of it beauty, i am so glad it has came out on DVD as it is one of my top 10 films of all time. Buy it or rent it just see it, best viewing is at night alone with drink and food in reach so you don't have to stop the film.<br /><br />Enjoy
+```
+
+다음으로는 훈련 데이터에서 20%를 새로운 디렉터리 aclImdb/val로 덜어내어 검증 세트를 만들어 보자.
+
+```
+import os, pathlib, shutil, random
+
+base_dir = pathlib.Path("aclImdb")
+val_dir = base_dir / "val"
+train_dir = base_dir / "train"
+for category in ("neg", "pos"):
+    os.makedirs(val_dir / category)
+    files = os.listdir(train_dir / category)
+    random.Random(1337).shuffle(files)
+    num_val_samples = int(0.2 * len(files))
+    val_files = files[-num_val_samples:]
+    for fname in val_files:
+        shutil.move(train_dir / category / fname,
+                    val_dir / category / fname)
+```
+
+8장에서 `image_dataset_from_directory` 유틸리티를 사용해 디렉터리 구조를 바탕으로 데이터 배치 `Dataset`을 만들었다. 텍스트 파일에 대해서도 `text_dataset_from_directory` 유틸리티를 사용하면 동일한 방식으로 만들 수 있다. 훈련, 검증, 테스트를 위한 3개의 `Dataset` 객체를 만들어 보자.
+
+```
+from tensorflow import keras
+batch_size = 32
+
+train_ds = keras.utils.text_dataset_from_directory(
+    "aclImdb/train", batch_size=batch_size
+)
+
+val_ds = keras.utils.text_dataset_from_directory(
+    "aclImdb/val", batch_size=batch_size
+)
+
+test_ds = keras.utils.text_dataset_from_directory(
+    "aclImdb/test", batch_size=batch_size
+)
+```
+
+이 데이터셋은 텐서플로의 `tf.string` 텐서 입력과 0 또는 1로 인코딩된 `int32` 텐서 타깃을 반환한다.
+
+**코드 11-2. 첫 번째 배치의 크기와 dtype 출력하기**
+```
+>>> for inputs, targets in train_ds:
+>>>     print("inputs.shape:", inputs.shape)
+>>>     print("inputs.dtype:", inputs.dtype)
+>>>     print("targets.shape:", targets.shape)
+>>>     print("targets.dtype:", targets.dtype)
+>>>     print("inputs[0]:", inputs[0])
+>>>     print("targets[0]:", targets[0])
+>>>     break
+inputs.shape: (32,)
+inputs.dtype: <dtype: 'string'>
+targets.shape: (32,)
+targets.dtype: <dtype: 'int32'>
+inputs[0]: tf.Tensor(b"As an ex-teacher(!) I must confess to cringing through many scenes - 'though I continued to watch to the end. I wonder why?! (Boredom, perhaps?) :-)<br /><br />The initial opening scenes struck me as incredibly mish-mashed and unfocussed. The plot, too, although there were some good ideas - the plight of a relief teacher, for example - were not concentrated enough in any one direction for 3-D development.<br /><br />Not one of Mr Nolte's finer moments. As to young Mr Macchio, does he speak that way in *every* movie?<br /><br />Plot and acting complaints aside, the hair-styles alone were a nostalgic (if nauseating) trip.<br /><br />", shape=(), dtype=string)
+targets[0]: tf.Tensor(0, shape=(), dtype=int32)
+```
+
+### 11.3.2 단어를 집합으로 처리하기: BoW 방식
+
+머신 러닝 모델로 텍스트를 처리하기 위해 인코딩하는 가장 간단한 방법은 순서를 무시하고 토큰 집합으로 다루는 것이다. 개별 단어(유니그램(unigram))를 사용하거나 또는 연속된 토큰 그룹(N-그램)으로 국부적인 순서 정보를 유지할 수 있다.
+
+#### 이진 인코딩을 사용한 유니그램
+
+개별 단어의 집합을 사용하면 "the cat sat on the mat"이라는 문장은 다음과 같이 표현된다.
+
+```
+{"cat", "mat", "on", "sat", "the"}
+```
+
+이 인코딩은 전체 텍스트를 하나의 벡터로 표현할 수 있다는 장점이 있다. 벡터의 각 원소는 한 단어의 존재 유무를 나타낸다. 예를 들어 멀티-핫(multi-hot) 이진 인코딩(binary encoding)을 사용하면 하나의 텍스트를 어휘 사전의 단어 개수만큼의 차원을 가진 벡터로 인코딩한다. 텍스트에 있는 단어에 해당하는 차원은 1로, 나머지는 0으로 매핑된다.
+
+먼저 원시 텍스트를 `TextVectorization` 층으로 처리하여 멀티-핫 인코딩된 이진 단어 벡터로 만든다. 이 층은 하나의 단어씩 처리하므로 유니그램이다.
+
+**코드 11-3. TextVectorization 층으로 데이터 전처리하기**
+```
+text_vectorization = TextVectorization(
+    max_tokens=20000,
+    output_mode="multi_hot",
+)
+
+text_only_train_ds = train_ds.map(lambda x, y: x)
+text_vectorization.adapt(text_only_train_ds)
+
+binary_1gram_train_ds = train_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=8,
+)
+binary_1gram_val_ds = val_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=8,
+)
+binary_1gram_test_ds = test_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=8,
+)
+```
+
+데이터셋들 중 하나의 출력을 확인해 보자.
+
+**코드 11-4. 이진 유니그램 데이터셋의 출력 확인하기**
+```
+>>> for inputs, targets in binary_1gram_train_ds:
+>>>     print("inputs.shape:", inputs.shape)
+>>>     print("inputs.dtype:", inputs.dtype)
+>>>     print("targets.shape:", targets.shape)
+>>>     print("targets.dtype:", targets.dtype)
+>>>     print("inputs[0]:", inputs[0])
+>>>     print("targets[0]:", targets[0])
+>>>     break
+inputs.shape: (32, 20000)
+inputs.dtype: <dtype: 'float32'>
+targets.shape: (32,)
+targets.dtype: <dtype: 'int32'>
+inputs[0]: tf.Tensor([1. 1. 1. ... 0. 0. 0.], shape=(20000,), dtype=float32)
+targets[0]: tf.Tensor(1, shape=(), dtype=int32)
+```
+
+다음으로 이 절에서 사용할 모델 생성 함수를 정의한다.
+
+**코드 11-5. 모델 생성 유틸리티**
+```
+from tensorflow import keras
+from tensorflow.keras import layers
+
+def get_model(max_tokens=20000, hidden_dim=16):
+    inputs = keras.Input(shape=(max_tokens, ))
+    x = layers.Dense(hidden_dim, activation="relu")(inputs)
+    x = layers.Dropout(0.5)(x)
+    outputs = layers.Dense(1, activation="sigmoid")(x)
+    model = keras.Model(inputs=inputs, outputs=outputs)
+    model.compile(optimizer="rmsprop",
+                  loss="binary_crossentropy",
+                  metrics=["accuracy"])
+    return model
+```
+
+마지막으로 모델을 훈련하고 테스트한다.
+
+**코드 11-6. 이진 유니그램 모델 훈련하고 테스트하기**
+```
+model = get_model()
+model.summary()
+callbacks = [
+    keras.callbacks.ModelCheckpoint("binary_1gram.keras", save_best_only=True)
+]
+model.fit(
+    binary_1gram_train_ds.cache(),
+    epochs=10,
+    callbacks=callbacks,
+)
+model = keras.models.load_model("binary_1gram.keras")
+print(f"테스트 정확도: {model.evaluate(binary_1gram_test_ds)[1]:.3f}")
+```
+
+테스트 정확도는 88.8%를 얻었다. 균형 잡힌 이진 분류 데이터셋의 단순한 기준점은 50%이다. 외부 데이터를 활용하지 않는다면 이 데이터셋에서 달성할 수 있는 최상의 테스트 정확도는 약 95%이다.
+
+#### 이진 인코딩을 사용한 바이그램
+
+하나의 개념이 여러 단어로 표현될 수 있기 때문에 단어의 순서를 아예 무시하는 것은 매우 파괴적이다. 예를 들어 "United States"는 "states"와 "united" 단어의 개별적 의미와 많이 다른 개념을 제공한다. 따라서 N-그램을 사용해 국부적인 순서 정보를 BoW 표현에 추가하게 된다. 특히 바이그램이 가장 널리 사용된다.
+
+바이그램을 사용할 시 앞의 예시 문장은 다음과 같이 표현된다.
+
+```
+{"the", "the cat", "cat", "cat sat", "sat",
+"sat on", "on", "on the", "the mat", "mat"}
+```
+
+`TextVectorization` 층은 바이그램, 트라이그램(trigram)을 포함하여 임의의 N-그램을 반환할 수 있다. 다음 코드와 같이 `ngrams=N` 매개변수를 설정하면 된다.
+
+**코드 11-7. 바이그램을 반환하는 TextVectorization 층 만들기**
+```
+text_vectorization = TextVectorization(
+    ngrams=2,
+    max_tokens=20000,
+    output_mode="multi_hot",
+)
+```
+
+이진 인코딩된 바이그램에서 훈련한 모델의 성능을 확인해 보자.
+
+**코드 11-8. 이진 바이그램 모델 훈련하고 테스트하기**
+```
+text_vectorization.adapt(text_only_train_ds)
+
+binary_2gram_train_ds = train_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=8,
+)
+
+binary_2gram_val_ds = val_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=8,
+)
+
+binary_2gram_test_ds = test_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=8,
+)
+
+model = get_model()
+model.summary()
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint("binary_2gram.keras", save_best_only=True)
+]
+
+model.fit(
+    binary_2gram_train_ds,
+    epochs=10,
+    validation_data=binary_2gram_val_ds,
+    callbacks=callbacks,
+)
+
+model = keras.models.load_model("binary_2gram.keras")
+print(f"테스트 정확도: {model.evaluate(binary_2gram_test_ds)[1]:.3f}")
+```
+
+90%의 테스트 정확도를 달성했다. 정확도가 크게 향상되었다는 점에서 국부적인 순서가 매우 중요하다는 것을 알 수 있다.
+
+#### TF-IDF 인코딩을 사용한 바이그램
+
+이 표현에서는 개별 단어나 N-그램의 등장 횟수를 카운트한 정보를 추가할 수 있다. 즉, 텍스트에 대한 단어의 히스토그램(histogram)을 사용한다.
+
+```
+{"the": 2, "the cat": 1, "cat": 1, "cat sat": 1, "sat": 1,
+"sat on": 1, "on": 1, "on the": 1, "the mat": 1, "mat": 1}
+```
+
+텍스트 분류 작업에선 단어의 빈도 정보 역시 중요하다. 예를 들어 감성 분류에 상관없이 충분히 긴 영화 리뷰라면 "terrible"이란 단어를 포함할 수 있다. 하지만 "terrible"이 많이 포함된 리뷰는 부정적일 가능성이 높다.
+
+`TextVectorization` 층으로 바이그램 등장 횟수를 카운트하는 코드는 다음 코드와 같다.
+
+**코드 11-9. 토큰 카운트를 반환하는 TextVectorization 층**
+```
+text_vectorization = TextVectorization(
+    ngrams=2,
+    max_tokens=20000,
+    output_mode="count",
+)
+```
+
+"the", "a", "is", "are"과 같이 일부 단어는 텍스트와 상관없이 다른 단어보다 많이 등장한다. 분류 작업에 거의 쓸모없는 특성임에도 항상 단어 카운트 히스토그램을 압도하여 다른 단어의 카운트 의미를 퇴색시킨다. 정규화를 사용하여 이러한 문제를 해결할 수 있다. 전체 훈련 데이터셋에서 계산된 평균을 빼고 분산으로 나누어 단어 카운트를 정규화하는 것이 한 가지 방법이다.
+
+그러나 벡터화된 문장 대부분은 벡터 원소 대부분이 0으로 구성된다. 이러한 속성을 희소성(sparsity)이라고 부른다. 희소성은 계산 부하를 줄이고 과대적합의 위험을 감소시킨다는 점에서 매우 좋은 속성이다. 그러나 각 특성에서 평균을 빼면 희소성이 깨진다. 따라서 나눗셈만 사용하는 정규화 방식을 사용해야 한다. 이럴 때 사용되는 것이 **TF-IDF 정규화**(Term Frequency-Inverse Document Frequency, 단어 빈도-역문서 빈도)이다.
+
+TF-IDF 정규화는 현재 문서에 단어가 등장하는 횟수인 **단어 빈도**로 해당 단어에 가중치를 부여하고, 데이터셋 전체에 단어가 등장하는 횟수인 **문서 빈도**로 나눈다. 예를 들어 다음과 같이 계산할 수 있다.
+
+```
+def tfidf(term, document, dataset):
+    term_freq = document.count(term)
+    doc_freq = math.log(sum(doc.count(term) for doc in dataset) + 1)
+    return term_freq / doc_freq
+```
+
+이러면 거의 모든 텍스트에 등장하는 단어들은 그 중요성이 자연스레 퇴색된다.
+
+TF-IDF는 널리 사용되는 방법이기 때문에 `TextVectorization` 층에서 `output_mode="tf_idf"` 매개변수를 전달하여 사용할 수 있다.
+
+**코드 11-10. TF-IDF 가중치가 적용된 출력을 반환하는 TextVectorization 층**
+```
+text_vectorization = TextVectorization(
+    ngrams=2,
+    max_tokens=20000,
+    output_mode="tf_idf",
+)
+```
+
+새로운 모델을 훈련해 보자.
+
+**코드 11-11. TF-IDF 바이그램 모델 훈련하고 테스트하기**
+```
+text_vectorization.adapt(text_only_train_ds)
+
+tfidf_2gram_train_ds = train_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=8,
+)
+
+tfidf_2gram_val_ds = val_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=8,
+)
+
+tfidf_2gram_test_ds = test_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=8,
+)
+
+model = get_model()
+model.summary()
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint("tfidf_2gram.keras", save_best_only=True)
+]
+
+model.fit(
+    tfidf_2gram_train_ds,
+    epochs=10,
+    validation_data=tfidf_2gram_val_ds,
+    callbacks=callbacks,
+)
+
+model = keras.models.load_model("tfidf_2gram.keras")
+print(f"테스트 정확도: {model.evaluate(tfidf_2gram_test_ds)[1]:.3f}")
+```
+
+테스트 정확도가 88.2%로 오히려 감소하였다. 이 문제에서는 TF-IDF 방식이 특별하게 도움이 안 되는 것 같다. 하지만 많은 텍스트 분류 데이터셋에서 기본 이진 인코딩에 비해 TF-IDF를 사용했을 때 일반적으로 1%p의 성능을 높일 수 있다.
+
+위 예제에서는 `tf.data` 파이프라인의 일부로 텍스트 표준화, 분할, 인덱싱을 수행했다. 하지만 파이프라인과 독립적으로 실행되는 모델을 배포해야 한다면 자체적인 텍스트 전처리를 사용해야 한다.
+
+`TextVectorization` 층을 
