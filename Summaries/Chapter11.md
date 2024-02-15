@@ -632,4 +632,343 @@ print(f"테스트 정확도: {model.evaluate(tfidf_2gram_test_ds)[1]:.3f}")
 
 위 예제에서는 `tf.data` 파이프라인의 일부로 텍스트 표준화, 분할, 인덱싱을 수행했다. 하지만 파이프라인과 독립적으로 실행되는 모델을 배포해야 한다면 자체적인 텍스트 전처리를 사용해야 한다.
 
-`TextVectorization` 층을 
+`TextVectorization` 층을 재사용하는 새로운 모델을 만들고 방금 훈련된 모델을 추가하면 된다.
+
+```
+inputs = keras.Input(shape=(1, ), dtype="string")
+processed_inputs = text_vectorization(inputs)
+outputs = model(processed_inputs)
+inference_model = keras.Model(inputs, outputs)
+```
+
+만들어진 모델을 사용해 원시 문자열의 배치를 처리할 수 있다.
+
+```
+import tensorflow as tf
+
+raw_text_data = tf.convert_to_tensor([
+    ["That was an excellent movie, I loved it."],
+])
+predictions = inference_model(raw_text_data)
+print(f"긍정적인 리뷰일 확률: {float(predictions[0] * 100):.2f}%%")
+```
+
+### 11.3.3 단어를 시퀀스로 처리하기: 시퀀스 모델 방식
+
+**시퀀스 모델**(sequence model)은 순서 기반의 특성을 수동으로 만들어 모델에 전달하는 대신 원시 단어 시퀀스를 모델에 전달하면 스스로 이런 특성을 학습하도록 한다.
+
+시퀀스 모델을 구현할 때는 먼저 입력 샘플을 정수 인덱스의 시퀀스로 표현해야 한다. 그 다음 각 정수를 벡터로 매핑하여 벡터 시퀀스를 얻는다. 마지막으로 이 벡터 시퀀스를 1D 컨브넷, RNN, 트랜스포머와 같이 인접한 벡터의 특징을 비교할 수 있는 층에 전달한다.
+
+2016~2017년 사이에 양방향 RNN(특히 양방향 LSTM)이 시퀀스 모델링에서 최고의 성능을 낸다고 간주되었으나 현재는 트랜스포머를 사용하여 대부분의 시퀀스 모델링을 수행한다.
+
+양방향 RNN 아키텍처를 이미 다루어 본 적이 있으므로 먼저 이 아키텍처로 시퀀스 모델링을 수행해 보자.
+
+#### 첫 번째 예제
+
+먼저 정수 시퀀스를 반환하는 데이터셋을 준비한다.
+
+**코드 11-12. 정수 시퀀스 데이터셋 준비하기**
+```
+from tensorflow.keras import layers
+
+max_length = 600
+max_tokens = 20000
+text_vectorization = layers.TextVectorization(
+    max_tokens=max_tokens,
+    output_mode="int",
+    output_sequence_length=max_length,
+)
+text_vectorization.adapt(text_only_train_ds)
+
+int_train_ds = train_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=8,
+)
+int_val_ds = val_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=8,
+)
+int_test_ds = test_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=8,
+)
+```
+
+그 다음 모델을 만든다. 정수 시퀀스를 벡터 시퀀스로 바꾸는 가장 간단한 방법은 원-핫 인코딩이다. 원-핫 벡터 위에 간단한 양방향 LSTM 층을 추가한다.
+
+**코드 11-13. 원-핫 인코딩된 벡터 시퀀스로 시퀀스 모델 만들기**
+```
+import tensorflow as tf
+
+inputs = keras.Input(shape=(None, ), dtype="int64")
+embedded = tf.one_hot(inputs, depth=max_tokens)
+x = layers.Bidirectional(layers.LSTM(32))(embedded)
+x = layers.Dropout(0.5)(x)
+outputs = layers.Dense(1, activation="sigmoid")(x)
+model = keras.Model(inputs=inputs, outputs=outputs)
+
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+
+model.summary()
+```
+
+이 모델을 훈련한다.
+
+**코드 11-14. 첫 번째 시퀀스 모델 훈련하기**
+```
+callbacks = [
+    keras.callbacks.ModelCheckpoint("one_hot_bidir_lstm.keras", save_best_only=True)
+]
+
+model.fit(
+    int_train_ds,
+    validation_data=int_val_ds,
+    epochs=10,
+    callbacks=callbacks,
+)
+
+model = keras.models.load_model("one_hot_bidir_lstm.keras")
+print(f"테스트 정확도: {model.evaluate(int_test_ds)[1]:.3f}")
+```
+
+이 모델의 훈련은 매우 느리고, 테스트 정확도 87.7%로 매우 빠른 이진 유니그램 모델만큼 성능이 좋지 않다. 그 이유는 각 입력 샘플이 (600, 20000) 크기의 행렬로 인코딩되어 있어 하나의 영화 리뷰가 1,200만 개의 부동 소수점으로 이루어지게 되어 너무 크기 때문이다.
+
+#### 단어 임베딩 이해하기
+
+원-핫 인코딩보다 나은 방법으로 **단어 임베딩**(word embedding)이 있다.
+
+원-핫 벡터끼리는 기본적으로 모두 직교하기 때문에 원-핫 인코딩 자체가 특성 공간의 구조에 대해 기초적인 가정을 하고 있다. 따라서 원-핫 인코딩 역시 특성 공학에 포함된다. 그러나 벡터끼리 직교한다는 가정이 단어에 있어선 명백히 잘못되었다. 단어는 구조적인 공간을 형성하기 때문이다. 예를 들어 "movie"와 "film"은 대부분의 문장에서 동일한 의미로 사용되기 때문에 "movie"를 나타내는 벡터와 "film"을 나타내는 벡터는 서로 직교해서는 안 된다.
+
+두 단어 사이의 기하학적 관계는 단어 사이의 의미 관계를 반영해야 한다. 따라서 의미가 가까운 단어는 서로 가까운 기하학적 거리를 가져야 하고, 의미가 먼 단어는 서로 먼 기하학적 거리를 가져야 한다.
+
+단어 임베딩은 사람의 언어를 구조적인 기하학적 공간에 매핑함으로써 두 단어의 기하학적 관계를 반영한다.
+
+원-핫 인코딩은 희소성을 가지는 고차원 이진 벡터를 만들지만, 단어 임베딩은 저차원의 부동 소수점 벡터(밀집 벡터)를 만든다. 일반적으로 256, 512, 1,024차원만으로 매우 큰 어휘 사전을 다룰 수 있으며 따라서 많은 정보를 더 적은 차원으로 압축한다.
+
+단어 임베딩은 또한 구조적인 표현이며 이 구조는 데이터로부터 학습된다. 비슷한 단어는 가까운 위치에 임베딩된다. 더 나아가 임베딩 공간의 특정 방향이 의미를 가질 수도 있다.
+
+실제 단어 임베딩 공간에서 의미 있는 기하학적 변환의 일반적인 예는 성별 벡터와 복수(plural) 벡터이다. 예를 들어 "king" 벡터에 "female" 벡터를 더하면 "queen" 벡터가 된다. 여기에 "plural" 벡터를 더하면 "queens"가 된다. 단어 임베딩 공간 상에는 일반적으로 이러한 해석이 가능하고 잠재적으로 유용한 수천 개의 벡터가 존재한다.
+
+단어 임베딩을 만드는 방법은 두 가지이다.
+
+- 현재 작업과 함께 단어 임베딩을 학습한다. 랜덤한 단어 벡터로 시작하여 신경망의 가중치를 학습하는 것과 같은 방식으로 단어 벡터를 학습한다.
+- 다른 머신 러닝 작업에서 미리 계산된 단어 임베딩을 모델에 로드한다. 이를 **사전 훈련된 단어 임베딩**(pretrained word embedding)이라고 부른다.
+
+#### Embedding 층으로 단어 임베딩 학습하기
+
+`Embedding` 층의 가중치를 학습하면 새로운 임베딩을 간단히 학습할 수 있다.
+
+**코드 11-15. Embedding 층 만들기**
+```
+embedding_layer = layers.Embedding(input_dim=max_tokens, output_dim=256)
+```
+
+`Embedding` 층은 사실상의 딕셔너리 룩업(lookup)으로, 특정 단어를 나타내는 정수 인덱스를 밀집 벡터로 매핑하는 딕셔너리로 이해하는 것이 좋다.
+
+(batch_size, sequence_length)인 랭크-2 정수 텐서를 입력으로 받는다. 각 항목은 정수의 시퀀스이다. 이 층은 크기가 (batch_size, sequence_length, embedding_dimensionality)인 랭크-3 부동 소수점 텐서를 반환한다.
+
+층의 가중치는 처음엔 랜덤하게 초기화되고 훈련 중에 역전파를 통해 점차 조정되고 최종적으로 후속 모델이 사용할 수 있도록 임베딩 공간을 구성한다. 훈련 이후에 임베딩 공간은 특정 문제에 전문화된 여러 가지 구조를 가지게 된다.
+
+`Embedding` 층을 포함한 모델을 만들고 성능을 확인해 보자.
+
+**코드 11-16. 밑바닥부터 훈련하는 Embedding 층을 사용한 모델**
+```
+inputs = keras.Input(shape=(None, ), dtype="int64")
+embedded = layers.Embedding(input_dim=max_tokens, output_dim=256)(inputs)
+x = layers.Bidirectional(layers.LSTM(32))(embedded)
+x = layers.Dropout(0.5)(x)
+outputs = layers.Dense(1, activation="sigmoid")(x)
+
+model = keras.Model(inputs=inputs, outputs=outputs)
+
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+
+model.summary()
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint("embeddings_bidir_lstm.keras", save_best_only=True)
+]
+
+model.fit(
+    int_train_ds,
+    validation_data=int_val_ds,
+    epochs=10,
+    callbacks=callbacks,
+)
+
+model = keras.models.load_model("embeddings_bidir_lstm.keras")
+print(f"테스트 정확도: {model.evaluate(int_test_ds)[1]:.3f}")
+```
+
+LSTM이 20,000차원이 아닌 256차원 벡터를 처리하기 때문에 훈련 속도가 훨씬 빠르다. 그러나 테스트 정확도는 87.2%로 여전히 기본적인 바이그램 모델의 결과보다 차이가 나는데, 그 이유 중 하나는 모델이 약간 적은 데이터를 사용하기 때문이다. 바이그램 모델은 전체 리뷰를 처리하지만 이 시퀀스 모델은 600개의 단어 이후의 시퀀스는 잘라버린다.
+
+#### 패딩과 마스킹 이해하기
+
+입력 시퀀스가 0으로 가득 차 있으면 모델의 성능에 나쁜 영향을 미친다. 이는 `TextVectorization` 층에 `output_sequence_length=max_length` 옵션을 사용한 결과이다. 600개의 토큰보다 긴 문장은 길이 600으로 잘린다. 600개의 토큰보다 짧은 문장은 끝에 0이 패딩되는데 이렇게 해서 다른 시퀀스와 연결하여 배치를 채울 수 있었다.
+
+이러면 양방향 RNN을 사용하면서 정방향으로 토큰을 처리하는 RNN 층이 마지막에 패딩이 인코딩된 벡터만 처리함에 따라 내부 상태에 저장된 정보를 잃어갈 것이다.
+
+따라서 RNN 층이 이런 패딩을 건너뛰게 만들 방법이 필요한데 이를 위한 API가 **마스킹**(masking)이다.
+
+`Embedding` 층은 입력 데이터에 상응하는 (batch_size, sequence_length) 크기의 텐서인 마스킹을 생성할 수 있다. `mask[i, t]`는 샘플 i의 타임스텝 t를 건너뛰어야 할지 말아야 할지를 나타낸다.
+
+기본적으로 이 옵션은 비활성화되어 있기 때문에 `mask_zero=True` 옵션을 `Embedding` 층에 추가해야 한다. 또한 `Embedding` 층의 `compute_mask()` 메소드로 어떤 입력에 대한 마스킹을 추출할 수 있다.
+
+```
+>>> embedding_layer = layers.Embedding(input_dim=10, output_dim=256, mask_zero=True)
+>>> some_input = [
+>>>     [4, 3, 2, 1, 0, 0, 0],
+>>>     [5, 4, 3, 2, 1, 0, 0],
+>>>     [2, 1, 0, 0, 0, 0, 0]
+>>> ]
+>>> mask = embedding_layer.compute_mask(some_input)
+>>> print(mask)
+tf.Tensor(
+[[ True  True  True  True False False False]
+ [ True  True  True  True  True False False]
+ [ True  True False False False False False]], shape=(3, 7), dtype=bool)
+```
+
+실전에서는 수동으로 마스킹을 관리할 필요가 거의 없다. 케라스가 마스킹을 처리할 수 있는 모든 층에 자동으로 전달하기 때문이다. RNN 층은 이 마스킹을 사용하여 스텝을 건너뛸 수 있다. 모델이 전체 시퀀스를 반환한다면 손실 함수도 마스킹을 사용하여 출력 시퀀스에서 마스킹된 스텝을 건너뛸 것이다.
+
+마스킹을 활성화하여 모델을 다시 훈련해 보자.
+
+**코드 11-17. 마스킹을 활성화한 Embedding 층 사용하기**
+```
+inputs = keras.Input(shape=(None, ), dtype="int64")
+embedded = layers.Embedding(
+    input_dim=max_tokens,
+    output_dim=256,
+    mask_zero=True,
+)(inputs)
+x = layers.Bidirectional(layers.LSTM(32))(embedded)
+x = layers.Dropout(0.5)(x)
+outputs = layers.Dense(1, activation="sigmoid")(x)
+
+model = keras.Model(inputs=inputs, outputs=outputs)
+
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+
+model.summary()
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint("embeddings_bidir_lstm_with_masking.keras",
+                                    save_best_only=True)
+]
+
+model.fit(
+    int_train_ds,
+    validation_data=int_val_ds,
+    epochs=10,
+    callbacks=callbacks,
+)
+
+model = keras.models.load_model("embeddings_bidir_lstm_with_masking.keras")
+print(f"테스트 정확도: {model.evaluate(int_test_ds)[1]:.3f}")
+```
+
+적지만 성능이 향상된다.
+
+#### 사전 훈련된 단어 임베딩 사용하기
+
+훈련 데이터가 부족한 경우엔 미리 계산된 임베딩 공간의 임베딩 벡터를 로드할 수 있다. 이런 임베딩 공간은 뛰어난 구조와 유용한 성질을 가지고 있어 언어 구조의 일반적인 측면을 잡아낼 수 있다. 충분한 데이터가 없어 자신만의 표현을 학습하지 못한다면 고려할 수 있는 방법이다.
+
+단어 임베딩은 일반적으로 함께 등장하는 단어를 관찰하는 단어 출현 통계를 사용하여 계산된다. 2013년 구글의 토마스 미코로프가 개발한 `Word2Vec` 알고리즘이 가장 유명하고 성공적인 단어 임베딩 방법이다. 또 2014년 스탠포드 대학의 연구자들이 개발한 GloVe(Global Vectors for Word Representation)이 있다.
+
+둘 다 `Embedding` 층을 위해 내려받을 수 있다. `GloVe` 임베딩을 케라스 모델에 사용하는 방법을 대표적으로 알아볼 것이다. `Word2vec` 임베딩이나 다른 단어 임베딩 데이터베이스도 사용하는 방법은 같다. 먼저 `GloVe` 파일을 내려받고 파싱한 후 단어 벡터를 케라스 `Embedding` 층으로 로드하여 새로운 모델을 만든다.
+
+2014년 영어 위키피디아 데이터셋에서 미리 계산된 `GloVe` 단어 임베딩을 내려받는다. 아 파일은 822MB 크기의 압축 파일이고 40만 개의 단어 또는 단어가 아닌 토큰에 대한 100차원 임베딩 벡터를 담고 있다.
+
+```
+!wget http://nlp.stanford.edu/data/glove.6B.zip
+!unzip -q glove.6B.zip
+!rm -f glove.6B.zip
+```
+
+압축 해제한 텍스트 파일을 파싱하여 단어와 이에 상응하는 벡터 표현을 매핑하는 인덱스를 만든다.
+
+**코드 11-18. GloVe 단어 임베딩 파일 파싱하기**
+```
+import numpy as np
+
+path_to_glove_file = "glove.6B.100d.txt"
+embeddings_index = {}
+with open(path_to_glove_file) as f:
+    for line in f:
+        word, coefs = line.split(maxsplit=1)
+        coefs = np.fromstring(coefs, "f", sep=" ")
+        embeddings_index[word] = coefs
+
+print(f"단어 벡터 개수: {len(embeddings_index)}")
+```
+
+그 다음 `Embedding` 층에 로드할 수 있는 임베딩 행렬을 만든다. 이 행렬의 크기는 (max_words, embedding_dim)이어야 한다. 이 행렬의 i번째 원소는 토큰화로 만든 단어 인덱스의 i번째 단어에 상응하는 embedding_dim 차원의 벡터이다.
+
+**코드 11-19. GloVe 단어 임베딩 행렬 준비하기**
+```
+embedding_dim = 100
+
+vocabulary = text_vectorization.get_vocabulary()
+word_index = dict(zip(vocabulary, range(len(vocabulary))))
+
+embedding_matrix = np.zeros((max_tokens, embedding_dim))
+for word, i in word_index.items():
+    if i < max_tokens:
+        embedding_vector = embeddings_index.get(word)
+    if embedding_vector is not None:
+        embedding_matrix[i] = embedding_vector
+```
+
+마지막으로 `Constant` 초기화를 사용하여 사전 훈련된 임베딩을 로드한다. 훈련하는 동안 사전 훈련된 표현이 변경되지 않도록 `trainable=False`로 층을 동결한다.
+
+```
+embedding_layer = layers.Embedding(
+    max_tokens,
+    embedding_dim,
+    embeddings_initializer=keras.initializers.Constant(embedding_matrix),
+    trainable=False,
+    mask_zero=True,
+)
+```
+
+이제 100차원의 사전 훈련된 GloVe 임베딩으로 새로운 모델을 훈련한다.
+
+**코드 11-20. 사전 훈련된 임베딩을 사용하는 모델**
+```
+inputs = keras.Input(shape=(None, ), dtype="int64")
+embedded = embedding_layer(inputs)
+x = layers.Bidirectional(layers.LSTM(32))(embedded)
+x = layers.Dropout(0.5)(x)
+outputs = layers.Dense(1, activation="sigmoid")(x)
+
+model = keras.Model(inputs=inputs, outputs=outputs)
+
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+
+model.summary()
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint("glove_embeddings_sequence_model.keras",
+                                    save_best_only=True)
+]
+
+model.fit(
+    int_train_ds,
+    validation_data=int_val_ds,
+    epochs=10,
+    callbacks=callbacks,
+)
+
+model = keras.models.load_model("glove_embeddings_sequence_model.keras")
+print(f"테스트 정확도: {model.evaluate(int_test_ds)[1]:.3f}")
+```
+
+테스트 정확도는 87.4%로 이 작업에서는 사전 훈련된 임베딩이 별로 도움이 되지 않는 듯하다. 이는 작업에 특화된 임베딩 공간을 밑바닥부터 학습하기에 충분한 샘플이 데이터셋에 있기 때문이다. 하지만 작은 데이터셋을 다룰 때는 사전 훈련된 임베딩이 크게 도움이 될 수 있다.
