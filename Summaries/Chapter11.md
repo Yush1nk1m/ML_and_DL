@@ -1088,8 +1088,8 @@ class TransformerEncoder(layers.Layer):
             [layers.Dense(dense_dim, activation="relu"),
              layers.Dense(embed_dim)]
         )
-        self.layernorm_1 = layers.LayerNormalization()
-        self.layernorm_2 = layers.LayerNormalization()
+        self.layernorm_1 = layers.LayerNormalization(epsilon=1e-7)
+        self.layernorm_2 = layers.LayerNormalization(epsilon=1e-7)
         
     # call 메소드에서 연산을 수행한다.
     def call(self, inputs, mask=None):
