@@ -972,3 +972,213 @@ print(f"테스트 정확도: {model.evaluate(int_test_ds)[1]:.3f}")
 ```
 
 테스트 정확도는 87.4%로 이 작업에서는 사전 훈련된 임베딩이 별로 도움이 되지 않는 듯하다. 이는 작업에 특화된 임베딩 공간을 밑바닥부터 학습하기에 충분한 샘플이 데이터셋에 있기 때문이다. 하지만 작은 데이터셋을 다룰 때는 사전 훈련된 임베딩이 크게 도움이 될 수 있다.
+
+
+
+## 11.4 트랜스포머 아키텍처
+
+트랜스포머(Transformer)는 바스와니(Vaswani) 등의 논문 "Attention is all you need"에서 소개되었다. 순환 층이나 합성곱 층을 사용하지 않고 뉴럴 어텐션(neural attention)이라고 부르는 간단한 메커니즘을 사용하여 강력한 시퀀스 모델을 만들 수 있다.
+
+### 11.4.1 셀프 어텐션 이해하기
+
+책을 읽을 때 목표나 관심 사항에 따라 어떤 부분은 그냥 훑어보고 다른 부분은 주의 깊게 읽을 수 있다. 모델 역시 이처럼 어떤 특성에 조금 더 주의를 기울이고, 다른 특성에 조금 덜 주의를 기울여야 한다.
+
+- 컨브넷에서 최대 풀링은 어떤 공간에 있는 특성 집합에서 단 하나의 특성을 선택한다. 이것은 "전부이거나 아니거나"와 같은 어텐션 형태이다. 가장 중요한 특성은 유지하고 나머지는 버린다.
+- TF-IDF 정규화는 토큰이 전달하는 정보량에 따라 토큰에 중요도를 할당한다. 중요한 토큰은 강조되고 관련 없는 토큰은 무시된다. 이것은 연속적인 어텐션 형태이다.
+
+어떤 종류의 어텐션 메커니즘은 단순히 어떤 특성을 강조하거나 삭제하는 것 이상을 위해 사용할 수 있다. **문맥 인식**(context-aware) 특성도 이 메커니즘으로 만들 수 있다. 단어 임베딩에서는 단어 하나가 공간 상에서 고정된 위치를 가졌지만 실제 언어는 이렇게 동작하지 않고 문맥에 따라 다른 의미를 가질 수 있다.
+
+스마트한 임베딩 공간이라면 주변 단어에 따라 단어의 벡터 표현이 달라져야 하고 여기에 **셀프 어텐션**이 사용된다. 셀프 어텐션의 목적은 시퀀스에 있는 관련된 토큰의 표현을 사용하여 한 토큰의 표현을 조절하는 것이다. 이로 인해 문맥을 고려한 토큰이 만들어진다.
+
+셀프 어텐션의 단계 1은 벡터와 문장에 있는 다른 모든 단어 사이의 관련성 점수(어텐션 점수)를 계산한다. 두 단어 벡터 사이의 점곱을 사용하여 관계의 강도를 측정한다. 계산적으로 매우 효율적인 거리 함수이며 트랜스포머 훨씬 이전에 이미 두 단어의 임베딩을 서로 관련시키는 표준적인 방법이었다.
+
+단계 2는 관련성 점수로 가중치를 두어 문장에 있는 모든 단어 벡터의 합을 계산한다. 밀접하게 관련된 단어들은 덧셈에 더 많이 기여하고 그렇지 않은 단어들은 거의 기여하지 않을 것이다. 만들어진 단어의 벡터는 새로운 표현이며 주변 문맥을 통합하는 표현이다.
+
+문장에 있는 모든 단어에 대해 이 과정을 반복하여 문장을 인코딩하는 새로운 벡터 시퀀스를 만든다. 넘파이 스타일의 의사 코드로 이 과정을 나타내면 다음과 같다.
+
+```
+def self_attention(input_sequence):
+    output = np.zeros(shape=input_sequence.shape)
+    for i, pivot_vector in enumerate(input_sequence):
+        scores = np.zeros(shape=(len(input_sequence), ))
+        for j, vector in enumerate(input_sequence):
+            scores[j] = np.dot(pivot_vector, vector.T)
+        scores /= np.sqrt(input_sequence.shape[1])
+        scores = softmax(scores)
+        new_pivot_representation = np.zeros(shape=pivot_vector.shape)
+        for j, vector in enumerate(input_sequence):
+            new_pivot_representation += vector * scores[j]
+        output[i] = new_pivot_representation
+    return output
+```
+
+실전에서는 벡터화된 구현을 사용하며, 케라스에서는 `MultiHeadAttention` 층을 제공한다. 사용 방법은 다음과 같다.
+
+```
+num_heads = 4
+embed_dim = 256
+mha_layer = MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
+outputs = mha_layer(inputs, inputs, inputs)
+```
+
+위 코드를 보면 두 가지 의문점이 생긴다.
+
+- 이 층에 입력을 세 번이나 전달하는 이유가 무엇인가?
+- 멀티 헤드(multi head)는 무엇인가?
+
+#### 일반화된 셀프 어텐션: 쿼리-키-값 모델
+
+트랜스포머 아키텍처는 원래 기계 번역을 위해 개발되었다. 기계 번역에서는 현재 번역하려는 소스 시퀀스(source sequence)와 변환하려는 타깃 시퀀스 2개의 입력 시퀀스를 다루어야 한다. 트랜스포머는 즉 한 시퀀스를 다른 시퀀스로 변환하기 위해 고안된 **시퀀스-투-시퀀스**(sequence-to-sequence) 모델이다.
+
+셀프 어텐션 메커니즘은 대략적으로 다음과 같이 수행된다.
+
+```
+outputs = sum(inputs(C) * pairwise_scores(inputs(A), inputs(B)))
+```
+
+이는 inputs(A)에 있는 모든 토큰이 inputs(B)에 있는 모든 토큰과 얼마나 관련되어 있는지 계산하고 이 점수를 사용하여 inputs(C)에 있는 모든 토큰의 가중치 합을 계산한다는 것을 의미한다. A, B, C가 동일한 입력 시퀀스일 필요는 없으며 일반적으로 3개의 서로 다른 시퀀스로 이를 수행할 수 있다. 각각을 쿼리(query), 키(key), 값(value)이라고 부른다. 즉, 이 연산은 쿼리에 있는 모든 원소가 키에 있는 모든 원소에 얼마나 관련되어 있는지 계산하고, 이 점수를 사용하여 값에 있는 모든 원소의 가중치 합을 계산하는 것이다.
+
+```
+outputs = sum(values * pairwise_scores(query, keys))
+```
+
+개념적으로 트랜스포머 스타일의 어텐션이 하는 일은 다음과 같다. 찾고 있는 것을 설명하는 참조 시퀀스인 쿼리가 있고, 정보를 추출할 지식의 본체인 값(value)을 가지고 있으며 쿼리와 쉽게 비교할 수 있는 포맷으로 값을 설명하는 키가 각 값에 할당되어 있다. 따라서 쿼리와 키를 매칭한 후 값의 가중치 합을 반환한다.
+
+실제로 키와 값은 같은 시퀀스인 경우가 많으며 기계 번역에서는 쿼리가 타깃 시퀀스고, 키와 값은 소스 시퀀스이다. 타깃의 각 단어에 대해 소스에서 이와 관련된 단어를 찾는다. 시퀀스 분류라면 자연스럽게 쿼리, 키, 값이 모두 같다. 시퀀스가 자기 자신과 비교하여 각 토큰에 전체 시퀀스의 풍부한 맥락을 부여한다.
+
+이것이 `MultiHeadAttention` 층에 `inputs`를 세 번 전달해야 하는 이유이다.
+
+### 11.4.2 멀티 헤드 어텐션
+
+멀티 헤드 어텐션은 "Attention is all you need"에 소개된 셀프 어텐션의 변형이다. 멀티 헤드라는 이름은 셀프 어텐션의 출력 공간이 독립적으로 학습되는 부분 공간으로 나뉘어진다는 사실을 의미한다. 초기 쿼리, 키, 값이 독립적인 3개의 밀집 투영(dense projection)을 통과해서 3개의 별개 벡터가 된다. 각 벡터는 뉴럴 어텐션으로 처리되고 이 출력이 하나의 출력 시퀀스로 연결된다. 이런 각 부분 공간을 헤드라고 부른다.
+
+![MultiHeadAttention 층](image-92.png)
+
+밀집 투영은 학습 가능하기 때문에 층이 실제로 무언가를 학습할 수 있다. 또한, 독립적인 헤드가 있으면 층이 토큰마다 다양한 특성 그룹을 학습하는 데 도움이 된다. 한 그룹 내의 특성은 다른 특성과 연관되어 있지만 다른 그룹에 있는 특성과는 거의 독립적이다.
+
+이는 대체로 깊이별 분리 합성곱의 작동 방식과 비슷하다. 컴퓨터 비전에는 깊이별 분리 합성곱과 이와 깊게 관련된 **그룹 합성곱**(grouped convolution)이 있는데, 멀티 헤드 어텐션은 동일한 아이디어를 셀프 어텐션에 적용한 것이다.
+
+### 11.4.3 트랜스포머 인코더
+
+트랜스포머 아키텍처에는 밀집 층, 잔차, 정규화 층을 넣는 과정이 포함되어 있다. 이는 모든 복잡한 모델에서 활용하는 표준 아키텍처 패턴이다. 이런 요소들이 트랜스포머 구조를 구성하는 두 가지 핵심 부분 중 하나인 **트랜스포머 인코더**(Transformer encoder)를 형성한다.
+
+![Transformer encoder](image-93.png)
+
+원본 트랜스포머 아키텍처는 소스 시퀀스를 처리하는 **트랜스포머 인코더**와 소스 시퀀스를 사용하여 변환된 버전을 생성하는 **트랜스포머 디코더**(Transformer decoder)로 구성된다.
+
+결정적으로 인코더 부분은 텍스트 분류에 사용할 수 있다. 시퀀스를 주입하고 더 유용한 표현으로 바꾸는 것을 학습하는 일반적인 모듈이다. 트랜스포머 인코더를 구현하여 영화 리뷰 감성 분류 작업에 적용해 보자.
+
+**코드 11-21. Layer 층을 상속하여 구현한 트랜스포머 인코더**
+```
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+
+class TransformerEncoder(layers.Layer):
+    def __init__(self, embed_dim, dense_dim, num_heads, **kwargs):
+        super().__init__(**kwargs)
+        self.embed_dim = embed_dim      # 입력 토큰 벡터의 크기
+        self.dense_dim = dense_dim      # 내부 밀집 층의 크기
+        self.num_heads = num_heads      # 어텐션 헤드의 개수
+        self.attention = layers.MultiHeadAttention(
+            num_heads=num_heads,
+            key_dim = embed_dim,
+        )
+        self.dense_proj = keras.Sequential(
+            [layers.Dense(dense_dim, activation="relu"),
+             layers.Dense(embed_dim)]
+        )
+        self.layernorm_1 = layers.LayerNormalization()
+        self.layernorm_2 = layers.LayerNormalization()
+        
+    # call 메소드에서 연산을 수행한다.
+    def call(self, inputs, mask=None):
+        # Embedding 층에서 생성하는 마스크는 2D이지만 어텐션 층은 3D 또는 4D를 기대하므로 랭크를 높인다.
+        if mask is not None:
+            mask = mask[:, tf.newaxis, :]
+        attention_output = self.attention(
+            inputs, inputs, attention_mask=mask,
+        )
+        proj_input = self.layernorm_1(inputs + attention_output)
+        proj_output = self.dense_proj(proj_input)
+        return self.layernorm_2(proj_input + proj_output)
+    
+    # 모델을 저장할 수 있도록 직렬화를 구현한다.
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "embed_dim": self.embed_dim,
+            "num_heads": self.num_heads,
+            "dense_dim": self.dense_dim,
+        })
+        return config
+```
+
+여기에서 사용한 정규화 층은 `BatchNormalization` 층이 아니다. 시퀀스 데이터에는 잘 맞지 않기 때문이다. 대신 배치에 있는 각 시퀀스를 독립적으로 정규화하는 `LayerNormalization` 층을 사용한다. 넘파이 스타일의 의사 코드로 나타내면 다음과 같은 로직이다.
+
+```
+# 입력 크기: (batch_size, sequence_length, embedding_dim)
+def layer_normalization(batch_of_sequences):
+    mean = np.mean(batch_of_sequences, keepdims=True, axis=-1)
+    variance = np.var(batch_of_sequences, keepdims=True, axis=-1)
+    return (batch_of_sequences - mean) / variance
+```
+
+`BatchNormalization` 층과 비교해 보자.
+
+```
+# 입력 크기: (batch_size, height, width, channels)
+def batch_normalization(batch_of_images):
+    mean = np.mean(batch_of_images, keepdims=True, axis=(0, 1, 2))
+    variance = np.var(batch_of_images, keepdims=True, axis=(0, 1, 2))
+    return (batch_of_images - mean) / variance
+```
+
+`BatchNormalization` 층은 특성의 평균과 분산에 대한 정확한 통계 값을 구하기 위해 많은 샘플에서 정보를 수집한다. 반면 `LayerNormalization` 층은 각 시퀀스 안에서 데이터를 개별적으로 구하기 때문에 시퀀스 데이터에 더 적절하다.
+
+`TransformerEncoder`를 사용하여 앞서 본 LSTM 기반 모델과 비슷한 텍스트 분류 모델을 만들어 보자.
+
+**코드 11-22. 트랜스포머 인코더를 사용하여 텍스트 분류하기**
+```
+vocab_size = 20000
+embed_dim = 256
+num_heads = 2
+dense_dim = 32
+
+inputs = keras.Input(shape=(None, ), dtype="int64")
+x = layers.Embedding(vocab_size, embed_dim)(inputs)
+x = TransformerEncoder(embed_dim, dense_dim, num_heads)(x)
+x = layers.GlobalMaxPooling1D()(x)
+x = layers.Dropout(0.5)(x)
+outputs = layers.Dense(1, activation="sigmoid")(x)
+
+model = keras.Model(inputs=inputs, outputs=outputs)
+
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+
+model.summary()
+```
+
+모델을 훈련한다.
+
+**코드 11-23. 트랜스포머 인코더 기반 모델 훈련하고 평가하기**
+```
+callbacks = [
+    keras.callbacks.ModelCheckpoint("transformer_encoder.keras", save_best_only=True)
+]
+
+model.fit(
+    int_train_ds,
+    validation_data=int_val_ds,
+    epochs=20,
+    callbacks=callbacks,
+)
+
+model = keras.models.load_model(
+    "transformer_encoder.keras",
+    custom_objects={"TransformerEncoder": TransformerEncoder}   # 모델 사용 시 사용자 정의 TransformerEncoder 클래스를 지정한다.
+)
+print(f"테스트 정확도: {model.evaluate(int_test_ds)[1]:.3f}")
+```
