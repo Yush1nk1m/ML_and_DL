@@ -1182,3 +1182,585 @@ model = keras.models.load_model(
 )
 print(f"테스트 정확도: {model.evaluate(int_test_ds)[1]:.3f}")
 ```
+
+이 모델은 87.6%의 테스트 정확도를 달성한다.
+
+셀프 어텐션은 시퀀스 원소 쌍 사이의 관계에 초점을 맞춘 집합 처리 메커니즘이다. 따라서 시퀀스에 있는 토큰 순서를 바꾸어도 동일한 정확도를 달성할 것이다. 그러므로 메커니즘 자체는 시퀀스 모델이라고 할 순 없다.
+
+하지만 트랜스포머는 기술적으로 순서에 구애받지 않지만 모델이 처리하는 표현에 순서 정보를 수동으로 주입하는 하이브리드 방식이다. 이를 **위치 인코딩**(positional encoding)이라고 한다. 이에 따라 시퀀스 모델의 특성을 갖게 되는 것이다.
+
+#### 위치 인코딩을 사용해서 위치 정보 주입하기
+
+위치 인코딩은 모델에 단어 순서 정보를 제공하기 위해 문장의 단어 위치를 각 단어 임베딩에 추가하는 작업이다. 입력 단어의 임베딩은 두 부분으로 구성된다. 특정 문맥에 독립적으로 단어를 표현하는 일반적인 단어 임베딩, 현재 문장의 단어 위치를 표현하는 위치 벡터이다.
+
+가장 간단한 방법은 위치 축을 추가하고 첫 번째 단어는 0, 두 번째 단어는 1과 같이 채워나가는 것이다. 습하지만 위치가 매우 큰 정수가 되어 임베딩 벡터 값의 범위를 넘어설 수 있기 때문에 이상적이지 않다. 신경망은 큰 입력 값이나 이산적인 입력 분포에는 잘 동작하지 않는다.
+
+"Attention is all you need" 논문에서는 위치에 따라 주기적으로 바뀌는 [-1, 1] 범위의 값을 가진 벡터를 단어 임베딩에 추가했다(이를 위해 코사인 함수를 사용했다). 이 트릭은 작은 값의 벡터로 넓은 범위의 어떤 정수도 고유하게 표현할 수 있다.
+
+여기서는 위 방법을 사용하진 않고 단어 인덱스의 임베딩을 학습하는 것처럼 위치 임베딩 벡터를 학습할 것이다. 그 다음 위치 임베딩을 이에 해당하는 단어 임베딩에 추가하여 위치를 고려한 단어 임베딩을 만든다. 이런 기법을 위치 임베딩(positional embedding)이라고 한다. 다음은 이를 구현한 코드이다.
+
+**코드 11-24. 서브클래싱으로 위치 임베딩 구현하기**
+```
+class PositionalEmbedding(layers.Layer):
+    # 위치 임베딩의 단점은 시퀀스 길이를 미리 알아야 한다는 것이다.
+    def __init__(self, sequence_length, input_dim, output_dim, **kwargs):
+        super().__init__(**kwargs)
+        # 토큰 인덱스를 위한 Embedding 층을 준비한다.
+        self.token_embeddings = layers.Embedding(
+            input_dim=input_dim, output_dim=output_dim,
+        )
+        # 토큰 위치를 위한 Embedding 층을 준비한다.
+        self.position_embeddings = layers.Embedding(
+            input_dim=sequence_length, output_dim=output_dim,
+        )
+        self.sequence_length = sequence_length
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+    
+    def call(self, inputs):
+        length = tf.shape(inputs)[-1]
+        positions = tf.range(start=0, limit=length, delta=1)
+        embedded_tokens = self.token_embeddings(inputs)
+        embedded_positions = self.position_embeddings(positions)
+        # 두 임베딩 벡터를 더한다.
+        return embedded_tokens + embedded_positions
+
+    def compute_mask(self, inputs, mask=None):
+        return tf.math.not_equal(inputs, 0)
+    
+    # 모델 저장을 위한 직렬화를 구현한다.
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "output_dim": self.output_dim,
+            "sequence_length": self.sequence_length,
+            "input_dim": self.input_dim,
+        })
+        return config
+```
+
+#### 텍스트 분류 트랜스포머
+
+단어 위치를 고려하려면 `Embedding` 층을 `PositionalEmbedding` 층으로 바꾸기만 하면 된다.
+
+**코드 11-25. 트랜스포머 인코더와 위치 임베딩 합치기**
+```
+vocab_size = 20000
+sequence_length = 600
+embed_dim = 256
+num_heads = 2
+dense_dim = 32
+
+inputs = keras.Input(shape=(None, ), dtype="int64")
+x = PositionalEmbedding(sequence_length, vocab_size, embed_dim)(inputs)
+x = TransformerEncoder(embed_dim, dense_dim, num_heads)(x)
+x = layers.GlobalMaxPooling1D()(x)
+x = layers.Dropout(0.5)(x)
+outputs = layers.Dense(1, activation="sigmoid")(x)
+
+model = keras.Model(inputs=inputs, outputs=outputs)
+
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+
+model.summary()
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint("full_transformer_encoder.keras",
+                                    save_best_only=True)
+]
+
+model.fit(
+    int_train_ds,
+    validation_data=int_val_ds,
+    epochs=20,
+    callbacks=callbacks,
+)
+
+model = keras.models.load_model(
+    "full_transformer_encoder.keras",
+    custom_objects={"TransformerEncoder": TransformerEncoder,
+                    "PositionalEmbedding": PositionalEmbedding}
+)
+print(f"테스트 정확도: {model.evaluate(int_test_ds)[1]:.3f}")
+```
+
+이 모델은 87.8%의 테스트 정확도를 달성하였다. 여전히 BoW 방식보다는 우수하지 않다.
+
+### 11.4.4 Bow 모델 대신 언제 시퀀스 모델을 사용하나요?
+
+훈련 데이터에 있는 샘플 개수와 샘플에 있는 평균 단어 개수 사이의 비율을 보면 된다. 비율이 1,500보다 작으면 BoW 모델의 성능이 더 나을 것이며, 보너스로 훨씬 빠르게 훈련되고 많이 반복할 수 있다. 이 비율이 1,500보다 크면 시퀀스 모델을 사용해야 한다. 시퀀스 모델은 훈련 데이터가 많고 비교적 샘플의 길이가 짧은 경우에 잘 동작한다.
+
+시퀀스 모델의 입력은 더 풍부하고 복잡한 공간을 표현하기 때문에 이 공간을 매핑하는 데 더 많은 데이터가 필요하다. 한편 평범한 단어 집합은 단순한 공간이므로 수백 또는 수천 개의 샘플만으로 로지스틱 회귀를 훈련할 수 있다. 또한, 샘플이 짧을수록 모델이 샘플에 담긴 정보를 무시할 수 없다. 특히 이 경우 단어의 순서가 더 중요해져 무시하면 모호해질 수 있다. 반면 샘플이 길수록 단어 통계를 더 신뢰할 수 있고 단어 히스토그램만으로 주제나 감성을 잘 드러낼 수 있다.
+
+이 경험 규칙은 텍스트 분류를 위해 개발된 것으로 다른 NLP 작업에 적용되지는 않는다.
+
+
+
+## 11.5 텍스트 분류를 넘어: 시퀀스-투-시퀀스 학습
+
+**시퀀스-투-시퀀스 모델**(sequence-to-sequence model)은 입력으로 시퀀스를 받아 이를 다른 시퀀스로 바꾼다.
+
+- **기계 번역**(machine translation): 소스 언어에 있는 문단을 타깃 언어의 문단으로 바꾼다.
+- **텍스트 요약**(text summarization): 긴 문서를 대부분의 중요한 정보를 유지한 짧은 버전으로 바꾼다.
+- **질문 답변**(question answering): 입력 질문에 대한 답변을 생성한다.
+- **챗봇**(chatbot): 입력된 대화나 또는 대화 이력에서 다음 응답을 생성한다.
+- **텍스트 생성**: 시작 텍스트를 사용하여 하나의 문단을 완성한다.
+- 기타
+
+시퀀스-투-시퀀스 모델의 훈련 중에는 다음과 같은 작업을 수행한다.
+
+- **인코더**(encoder) 모델이 소스 시퀀스를 중간 표현으로 바꾼다.
+- **디코더**(decoder)는 0에서 i-1까지의 이전 토큰과 인코딩된 소스 시퀀스를 보고 타깃 시퀀스에 있는 다음 토큰 i를 예측하도록 훈련된다.
+
+추론에서는 타깃 시퀀스를 사용하지 못하므로 처음부터 예측해야 한다. 한 번에 하나의 토큰을 생성한다.
+
+1. 인코더가 소스 시퀀스를 인코딩한다.
+2. 디코더가 인코딩된 소스 시퀀스와 초기 시드(seed) 토큰을 사용하여 시퀀스의 첫 번째 토큰을 예측한다.
+3. 지금까지 예측된 시퀀스를 디코더에 다시 주입하고 다음 토큰을 생성하는 식으로 종료 토큰이 생성될 때까지 반복한다.
+
+### 11.5.1 기계 번역 예제
+
+기계 번역 작업에 시퀀스-투-시퀀스 모델을 적용할 것이다. 순환 층을 사용하는 시퀀스 모델로 시작해서 완전한 트랜스포머 아키텍처까지 만들어 본다.
+
+https://www.manythings.org/anki/에 있는 영어-스페인어 번역 데이터셋을 사용한다. 먼저 파일을 내려받는다.
+
+```
+!wget http://storage.googleapis.com/download.tensorflow.org/data/spa-eng.zip
+!unzip -q spa-eng.zip
+!rm -f spa-eng.zip
+```
+
+텍스트 파일은 한 라인이 하나의 샘플로 구성되어 있다. 영어 문장 다음 탭이 있고 그 다음 스페인어 문장이 있다. 이 파일을 파싱해 보자.
+
+```
+text_file = "spa-eng/spa.txt"
+with open(text_file) as f:
+    lines = f.read().split("\n")[:-1]
+text_pairs = []
+for line in lines:
+    english, spanish = line.split("\t")
+    spanish = "[start] " + spanish + " [end]"
+    text_pairs.append((english, spanish))
+```
+
+`text_pairs`의 내용은 다음과 같다.
+
+```
+>>> import random
+>>> print(random.choice(text_pairs))
+('Go.', '[start] Ve. [end]')
+```
+
+이를 섞은 후 훈련, 검증, 테스트 세트로 나눈다.
+
+```
+import random
+
+random.shuffle(text_pairs)
+num_val_samples = int(0.15 * len(text_pairs))
+num_train_samples = len(text_pairs) - 2 * num_val_samples
+train_pairs = text_pairs[:num_train_samples]
+val_pairs = text_pairs[num_train_samples : num_train_samples + num_val_samples]
+test_pairs = text_pairs[num_train_samples + num_val_samples:]
+```
+
+그 다음 문자열을 전처리하는 방식을 커스터마이징하기 위해 영어와 스페인어 각각을 위한 `TextVectorization` 층을 준비한다.
+
+- 앞에서 추가한 "[start]", "[end]" 토큰을 유지해야 한다. 기본적으로 '[', ']' 문자가 삭제되지만 여기에서는 "start"와 "[start]"를 별개로 취급하기 위해 두 문자를 유지한다.
+- 구두점은 언어마다 다르다. 스페인어 `TextVectorization` 층에서 구두점 문자를 삭제하려면 '¿' 문자도 삭제해야 한다.
+
+실제 번역 모델에서는 구두점이 들어간 문장을 생성할 수 있어야 하므로 구두점 문자를 삭제하지 않고 별개의 토큰으로 다룰 것이다. 여기에서는 간단한 예를 위해 구두점을 삭제한다.
+
+**코드 11-26. 영어와 스페인어 텍스트 쌍을 벡터화하기**
+```
+import tensorflow as tf
+import string
+import re
+
+strip_chars = string.punctuation + "¿"
+strip_chars = strip_chars.replace("[", "")
+strip_chars = strip_chars.replace("]", "")
+
+def custom_standardization(input_string):
+    lowercase = tf.strings.lower(input_string)
+    return tf.strings.regex_replace(
+        lowercase, f"[{re.escape(strip_chars)}]", ""
+    )
+
+vocab_size = 15000
+sequence_length = 20
+
+# 영어 층
+source_vectorization = layers.TextVectorization(
+    max_tokens=vocab_size,
+    output_mode="int",
+    output_sequence_length=sequence_length,
+)
+# 스페인어 층
+target_vectorization = layers.TextVectorization(
+    max_tokens=vocab_size,
+    output_mode="int",
+    output_sequence_length=sequence_length + 1,     # 훈련하는 동안 한 스텝 앞선 문장이 필요하기 때문에 토큰 하나가 추가된 스페인어 문장을 생성한다.
+    standardize=custom_standardization,
+)
+
+train_english_texts = [pair[0] for pair in train_pairs]
+train_spanish_texts = [pair[1] for pair in train_pairs]
+# 각 언어의 어휘 사전을 만든다.
+source_vectorization.adapt(train_english_texts)
+target_vectorization.adapt(train_spanish_texts)
+```
+
+마지막으로 데이터를 `tf.data` 파이프라인으로 변환할 수 있다. 이 데이터셋은 (inputs, target)의 튜플을 반환한다. `inputs`는 encoder_inputs(영어 문장), decoder_inputs(스페인어 문장) 키 2개를 가진 딕셔너리이다. `target`은 한 스텝 앞의 스페인어 문장이다.
+
+**코드 11-27. 번역 작업을 위한 데이터셋 준비하기**
+```
+batch_size = 64
+
+def format_dataset(eng, spa):
+    eng = source_vectorization(eng)
+    spa = target_vectorization(spa)
+    return ({
+        "english": eng,
+        "spanish": spa[:, :-1],     # 입력 스페인어 문장은 마지막 토큰을 포함하지 않기 때문에 입력과 타깃 길이가 같다.
+    }, spa[:, 1:])                  # 타깃 스페인어 문장은 한 스텝 앞의 문장이다. 길이는 입력과 같다.
+
+def make_dataset(pairs):
+    eng_texts, spa_texts = zip(*pairs)
+    eng_texts = list(eng_texts)
+    spa_texts = list(spa_texts)
+    dataset = tf.data.Dataset.from_tensor_slices((eng_texts, spa_texts))
+    dataset = dataset.batch(batch_size)
+    dataset = dataset.map(format_dataset, num_parallel_calls=8)
+    return dataset.shuffle(2048).prefetch(16).cache()
+
+train_ds = make_dataset(train_pairs)
+val_ds = make_dataset(val_pairs)
+```
+
+데이터셋의 크기를 확인해 보자.
+
+```
+>>> for inputs, targets in train_ds.take(1):
+>>>     print(f"inputs[\"english\"].shape: {inputs['english'].shape}")
+>>>     print(f"inputs[\"spanish\"].shape: {inputs['spanish'].shape}")
+>>>     print(f"targets.shape: {targets.shape}")
+inputs["english"].shape: (64, 20)
+inputs["spanish"].shape: (64, 20)
+targets.shape: (64, 20)
+```
+
+이제 모델을 만들 차례이다. 먼저 순환 신경망으로 시퀀스-투-시퀀스 모델을 만들어 보고, 이후에 트랜스포머로 만들어 볼 것이다.
+
+### 11.5.2 RNN을 사용한 시퀀스-투-시퀀스 모델
+
+2015~2017년 사이에 많은 기계 번역 시스템의 기초는 순환 신경망을 사용한 시퀀스-투-시퀀스 학습이었다. 2017년경 구글 번역 시스템은 7개의 대형 LSTM 층을 쌓은 모델을 사용했다.
+
+RNN을 사용하여 한 시퀀스를 다른 시퀀스로 바꾸는 가장 간단하고 쉬운 방법은 각 타임스텝의 RNN 출력을 그대로 유지하는 것이다. 케라스에서는 다음과 같이 작성한다.
+
+```
+inputs = keras.Input(shape=(sequence_length, ), dtype="int64")
+x = layers.Embedding(input_dim=vocab_size, output_dim=128)(inputs)
+x = layers.LSTM(32, return_sequences=True)(x)
+outputs = layers.Dense(vocab_size, activation="softmax")(x)
+model = keras.Model(inputs=inputs, outputs=outputs)
+```
+
+하지만 이 방식에는 두 가지 이슈가 있다.
+
+- 타깃 시퀀스가 항상 소스 시퀀스와 동일한 길이여야 한다. 실제로는 이런 경우가 드물다. 따라서 소스 시퀀스나 타깃 시퀀스에 패딩을 추가하여 길이를 맞출 수 있다.
+- RNN의 스텝별 처리 특징 때문에 모델이 타깃 시퀀스에 있는 토큰 N을 예측하기 위해 소스 시퀀스에 있는 토큰 0...N만 참조할 것이다. 이런 제약 때문에 이 방식이 대부분의 작업 특히 번역에 적합하지 않다. 어순이 바뀌면 예측이 불가능해질 수 있다.
+
+시퀀스-투-시퀀스 모델은 사람이 번역하듯이 번역을 시작하기 전 소스 문장 전체를 먼저 읽는다. 영어와 일본어같이 어순이 크게 다른 언어를 다루는 경우 이러한 과정은 특히 중요하다.
+
+적절한 시퀀스-투-시퀀스 구조에서는 먼저 RNN(인코더)을 사용하여 전체 소스 문장을 하나의 벡터 또는 벡터 집합으로 바꾼다. 이 벡터는 RNN의 마지막 출력이거나 마지막 상태 벡터일 수 있다. 그 다음 이 벡터 또는 벡터 집합을 다른 RNN(디코더)의 초기 상태로 사용한다. 이 RNN은 타깃 시퀀스에 있는 원소 0...N을 사용하여 스텝 N+1을 예측한다.
+
+케라스로 `GRU` 기반의 인코더와 디코더를 구현해 볼 것이다. `LSTM`은 여러 개의 상태 벡터를 가지지만 `GRU`는 상태 벡터가 하나이기 때문에 조금 더 간단해진다.
+
+**코드 11-28. GRU 기반 인코더**
+```
+from tensorflow import keras
+from tensorflow.keras import layers
+
+embed_dim = 256
+latent_dim = 1024
+
+source = keras.Input(shape=(None, ), dtype="int64", name="english")     # 영어 소스 문장이 여기에 입력된다. 입력 이름을 지정함으로써 입력 딕셔너리로 모델을 훈련할 수 있다.
+x = layers.Embedding(vocab_size, embed_dim, mask_zero=True)(source)     # 마스킹은 이 방식에서 중요하다.
+encoded_source = layers.Bidirectional(
+    layers.GRU(latent_dim), merge_mode="sum"
+)(x)    # 인코딩된 소스 문장은 양방향 GRU의 마지막 출력이다.
+```
+
+다음으로 인코딩된 소스 문장을 초기 상태로 사용하는 간단한 `GRU` 층으로 디코더를 추가한다. 그 위에 `Dense` 층을 추가해 출력 스텝마다 스페인어 어휘 사전에 대한 확률 분포를 생성한다.
+
+**코드 11-29. GRU 기반 디코더와 엔드-투-엔드 모델**
+```
+past_target = keras.Input(shape=(None, ), dtype="int64", name="spanish")    # 스페인어 타깃 시퀀스가 여기에 입력된다.
+x = layers.Embedding(vocab_size, embed_dim, mask_zero=True)(past_target)    # 마스킹은 필수이다.
+decoder_gru = layers.GRU(latent_dim, return_sequences=True)
+x = decoder_gru(x, initial_state=encoded_source)                            # 인코딩된 소스 시퀀스는 디코더 GRU의 초기 상태가 된다.
+x = layers.Dropout(0.5)(x)
+target_next_step = layers.Dense(vocab_size, activation="softmax")(x)        # 다음 토큰을 예측한다.
+# 엔드-투-엔드 모델은 소스 시퀀스와 타깃 시퀀스를 한 스텝 앞의 타깃 시퀀스에 매핑한다.
+seq2seq_rnn = keras.Model(inputs=[source, past_target], outputs=target_next_step)
+```
+
+훈련하는 동안 디코더는 전체 타깃 시퀀스를 입력받는다. 하지만 RNN의 스텝별 처리 특징 덕분에 입력에 있는 토큰 0...N만 사용하여 타깃에 있는 토큰 N을 예측한다(타깃을 한 스텝 앞서게 만들었기 때문에 시퀀스의 다음 토큰에 해당한다). 이는 과거의 정보만을 이용해서 미래를 예측한다는 의미이다.
+
+훈련을 시작한다.
+
+**코드 11-30. RNN 기반 시퀀스-투-시퀀스 모델 훈련하기**
+```
+seq2seq_rnn.compile(
+    optimizer="rmsprop",
+    loss="sparse_categorical_crossentropy",
+    metrics=["accuracy"],
+)
+
+seq2seq_rnn.fit(
+    train_ds,
+    epochs=15,
+    validation_data=val_ds,
+)
+```
+
+이 모델은 검증 세트에서 66.1%의 정확도를 달성한다. 평균적으로 모델이 스페인 문장의 다음 단어를 64%의 확률로 예측하는 것이다. 하지만 실제로 다음 토큰의 정확도는 기계 번역에서 좋은 척도가 아니다. 특히 토큰 N+1을 예측할 때 0에서 N까지 정확한 타깃 토큰을 알고 있다고 가정해야 하기 때문이다. 실제로는 이전에 생성된 토큰이 100% 정확할 것이라고 신뢰할 수 없다. 실전에서는 BLEU 점수를 사용해서 모델을 평가할 가능성이 높다. 이 지표는 생성된 전체 시퀀스를 사용하며 사람이 번역 품질을 판단하는 것과 상관관계가 있는 것으로 보인다.
+
+마지막으로 이 모델을 사용해 추론을 해 볼 것이다. 테스트 세트에서 몇 개의 문장을 선택하여 모델이 어떻게 번역하는지 확인한다. 시드 토큰 "[start]"와 인코딩된 영어 소스 문장을 디코더 모델에 주입한다. 이후 다음 토큰을 예측하고 이를 디코더에 반복적으로 다시 주입한다. 이런 식으로 "[end]" 토큰이나 최대 문장 길이에 도달할 때까지 반복마다 새로운 타깃 토큰을 생성한다.
+
+**코드 11-31. RNN 인코더와 디코더로 새로운 문장 번역하기**
+```
+import numpy as np
+
+# 예측된 인덱스를 문자열 토큰으로 변환하기 위한 딕셔너리를 준비한다.
+spa_vocab = target_vectorization.get_vocabulary()
+spa_index_lookup = dict(zip(range(len(spa_vocab)), spa_vocab))
+max_decoded_sentence_length = 20
+
+def decode_sequence(input_sentence):
+    tokenized_input_sentence = source_vectorization([input_sentence])
+    decoded_sentence = "[start]"        # 시드 토큰
+    for i in range(max_decoded_sentence_length):
+        tokenized_target_sentence = target_vectorization([decoded_sentence])
+        # 다음 토큰을 샘플링한다.
+        next_token_predictions = seq2seq_rnn.predict([tokenized_input_sentence, tokenized_target_sentence])
+        sampled_token_index = np.argmax(next_token_predictions[0, i, :])
+        # 다음 토큰 예측을 문자열로 바꾸고 생성된 문장에 추가한다.
+        sampled_token = spa_index_lookup[sampled_token_index]
+        decoded_sentence += (" " + sampled_token)
+        if sampled_token == "[end]":    # 종료 조건: 최대 길이에 도달하거나 종료 문자가 생성된 경우
+            break
+    return decoded_sentence
+
+test_eng_texts = [pair[0] for pair in test_pairs]
+for _ in range(20):
+    input_sentence = random.choice(test_eng_texts)
+    print("-")
+    print(input_sentence)
+    print(decode_sequence(input_sentence))
+```
+
+이런 추론 방식은 매우 간단하지만 효율적이지 않다. 전체 소스 시퀀스와 지금까지 생성된 전체 타깃 시퀀스를 새로운 단어를 샘플링할 때마다 모두 다시 처리해야 하기 때문이다. 실전에서는 인코더와 디코더를 별개의 모델로 나누고 토큰 샘플링 반복마다 이전 내부 상태를 재사용하여 디코더가 한 스텝만 실행될 것이다.
+
+번역 결과는 다음과 같다.
+
+**코드 11-32. 순환 번역 모델의 결과 샘플**
+```
+-
+This is nonsense.
+1/1 [==============================] - 2s 2s/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+[start] esto es [UNK] [end]
+-
+You'll learn how to do it sooner or later.
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+[start] aprenderás a hacerlo tarde o temprano [end]
+-
+They haven't come back home yet.
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+[start] todavía no han venido de casa [end]
+-
+Sorry for the harsh words.
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 18ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+[start] [UNK] por el proyecto de palabras [end]
+-
+I'm leaving on Sunday.
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+[start] me voy a la playa [end]
+-
+I thought it'd be more comfortable if we sat here.
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+[start] pensé que sería más tiempo para que nos [UNK] aquí [end]
+-
+Tom is proud of his daughter.
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 18ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+[start] tom está orgulloso de su hija [end]
+-
+We are out of danger.
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+[start] estamos de acuerdo [end]
+-
+Her house is close to the park.
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+[start] su casa está cerca del parque [end]
+-
+I don't want to talk to you.
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+[start] no quiero hablar contigo [end]
+-
+It's healthy and normal.
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+[start] es hora y [UNK] [end]
+-
+I hate rules.
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+[start] odio las reglas [end]
+-
+She traveled around the world.
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+[start] ella viajó por todo el mundo [end]
+-
+He's probably wrong.
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+[start] Él probablemente está mal [end]
+-
+She is not a good person.
+1/1 [==============================] - 0s 22ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+[start] ella no es una buena persona [end]
+-
+I'm all tuckered out.
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 22ms/step
+[start] estoy todo el [UNK] [end]
+-
+Do I remind you of the one of the guys you left behind?
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 21ms/step
+[start] te [UNK] de la cabeza cuando se le [UNK] [end]
+-
+Tom wore a white jacket.
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+[start] tom llevaba un vestido de rojo [end]
+-
+Tom doesn't know what Mary meant.
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 20ms/step
+[start] tom no sabe lo que maría hizo mary [end]
+-
+Do come in.
+1/1 [==============================] - 0s 23ms/step
+1/1 [==============================] - 0s 19ms/step
+[start] pasa [end]
+```
+
+이 예제를 개선할 수 있는 방법이 여러 가지 있다. 인코더와 디코더의 순환 층을 여러 개 쌓을 수 있다(디코더의 경우 이렇게 하면 상태 관리가 조금 더 복잡해진다). `GRU` 대신에 `LSTM`을 사용할 수도 있다. 하지만 이런 개선 방법에도 시퀀스-투-시퀀스 학습을 위한 RNN 방식은 몇 가지 근본적인 제약이 따른다.
+
+- 소스 시퀀스가 인코더 상태 벡터 또는 벡터 집합으로 완전히 표현되어야 한다. 이는 번역할 수 있는 문장의 크기와 복잡도에 큰 제약이 된다. 사람이 번역할 때 소스 시퀀스를 두 번 보지 않고 완전히 단기 기억만을 사용해 번역하는 것과 같다.
+- RNN은 오래된 과거를 점진적으로 잊어버리는 경향이 있기 때문에 매우 긴 문장을 처리하는 데 문제가 있다. 어느 시퀀스에서든지 100번째 토큰에 도달하면 시작 부분에 대한 정보가 거의 남아 있지 않다. 이는 RNN 기반 모델이 긴 문서를 번역하는 데 필수적인 넓은 범위의 문맥을 감지할 수 없다는 것이다.
+
+이런 제약으로 인해 머신 러닝 커뮤니티는 시퀀스-투-시퀀스 문제에 트랜스포머 아키텍처를 적용하게 되었다.
+
