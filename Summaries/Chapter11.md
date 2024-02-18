@@ -1764,3 +1764,188 @@ Do come in.
 
 이런 제약으로 인해 머신 러닝 커뮤니티는 시퀀스-투-시퀀스 문제에 트랜스포머 아키텍처를 적용하게 되었다.
 
+### 11.5.3 트랜스포머를 사용한 시퀀스-투-시퀀스 모델
+
+뉴럴 어텐션으로 인해 트랜스포머 모델이 RNN이 다룰 수 있는 것보다 훨씬 길고 복잡한 시퀀스를 성공적으로 처리할 수 있다.
+
+사람이 번역을 수행할 때는 한 번에 소스 시퀀스를 기억하고 타깃 시퀀스를 한 단어씩 생성해 나가진 않을 것이다. 이런 방식보다는 소스 문장과 진행 중인 번역 사이를 왔다 갔다 하며 번역 문장의 부분 부분을 작성할 것이다.
+
+이를 뉴럴 어텐션과 트랜스포머로 구현할 수 있다. 셀프 어텐션을 사용하여 입력 시퀀스에 있는 토큰에 대해 문맥을 고려한 표현을 만드는 트랜스포머 인코더를 이전에 구현했다. 시퀀스-투-시퀀스 트랜스포머에서 인코더는 소스 문장을 읽고 인코딩된 표현을 만든다. 하지만 RNN 인코더와 달리 시퀀스 형태로 인코딩된 표현을 유지한다. 즉, 문맥을 고려한 임베딩 벡터의 시퀀스이다.
+
+모델의 나머지 절반은 **트랜스포머 디코더**(Transformer decoder)이다. 타깃 시퀀스에 있는 토큰 0...N을 읽고 토큰 N+1을 예측한다. 중요한 점은 뉴럴 어텐션을 사용해 인코딩된 소스 문장에서 어떤 토큰이 현재 예측하려는 타깃 토큰에 가장 관련이 높은지 식별한다는 것이다. 쿼리-키-값 모델을 다시 떠올려 보면 트랜스포머 디코더에서 타깃 시퀀스는 소스 시퀀스에 있는 다른 부분에 더 주의를 집중하기 위해 사용하는 어텐션 쿼리 역할을 하고, 소스 시퀀스는 키와 값 역할을 한다.
+
+#### 트랜스포머 디코더
+
+![Transformer architecture](image-95.png)
+
+트랜스포머 디코더 내부를 살펴보면 인코더와 매우 비슷한 구조를 가지고 있음을 알 수 있다. 그러나 타깃 시퀀스에 적용되는 셀프 어텐션 블록과 마지막 블록의 밀집 층 사이에 추가적인 어텐션 블록이 들어가 있다.
+
+`TransformerEncoder`와 비슷하게 `Layer` 클래스를 서브클래싱하여 디코더를 구현해 보자. 먼저 클래스 생성자에서 필요한 층을 정의한다.
+
+**코드 11-33. TransformerDecoder 클래스**
+```
+class TransformerDecoder(layers.Layer):
+    def __init__(self, embed_dim, dense_dim, num_heads, **kwargs):
+        super().__init__(**kwargs)
+        self.embed_dim = embed_dim
+        self.dense_dim = dense_dim
+        self.num_heads = num_heads
+        self.attention_1 = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
+        self.attention_2 = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
+        self.dense_proj = keras.Sequential([
+            layers.Dense(dense_dim, activation="relu"),
+            layers.Dense(embed_dim),
+        ])
+        self.layernorm_1 = layers.LayerNormalization(epsilon=1e-7)
+        self.layernorm_2 = layers.LayerNormalization(epsilon=1e-7)
+        self.layernorm_3 = layers.LayerNormalization(epsilon=1e-7)
+        # 이 속성은 층이 입력 마스킹을 출력으로 전달하도록 만든다.
+        # 케라스에서 마스킹을 사용하려면 명시적으로 설정을 해야 한다.
+        # compute_mask() 메소드를 구현하지 않으면서 supports_masking 속성을 제공하지 않는 층에 마스킹을 전달하면 에러가 발생한다.
+        self.supports_masking = True
+        
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "embed_dim": self.embed_dim,
+            "num_heads": self.num_heads,
+            "dense_dim": self.dense_dim,
+        })
+        return config
+```
+
+`call()` 메소드는 기본적으로 트랜스포머 구조를 그대로 구현할 것이다. 하지만 추가적으로 **코잘 패딩**(causal padding)을 고려해야 한다. RNN은 한 번에 한 스텝씩 입력을 본다. 따라서 출력 스텝 N을 생성하기 위해 스텝 0...N만 사용할 수 있다. 하지만 `TrnasformerDecoder`는 순서에 구애받지 않고 한 번에 타깃 시퀀스 전체를 바라본다. 전체 입력을 사용하도록 둔다면 단순히 입력 스텝 N+1을 출력 위치 N에 복사하는 방법을 학습할 것이다.
+
+해결 방법은 간단히 모델이 미래에서 온 정보에 주의를 기울이지 못하도록 어텐션 행렬의 위쪽 절반을 마스킹하면 된다. 즉, 타깃 토큰 N+1을 생성할 때 타깃 시퀀스에 있는 토큰 0...N에서 온 정보만 사용해야 한다. 이를 위해 `TransformerDecoder` 클래스에 `get_causal_attention_mask(self, inputs)` 메소드를 추가하여 `MultiHeadAttention` 층에 전달할 수 있는 어텐션 행렬을 만든다.
+
+**코드 11-34. 코잘 마스킹을 생성하는 TransformerDecoder 메소드**
+```
+    def get_causal_attention_mask(self, inputs):
+        input_shape = tf.shape(inputs)
+        batch_size, sequence_length = input_shape[0], input_shape[1]
+        i = tf.range(sequence_length)[:, tf.newaxis]
+        j = tf.range(sequence_length)
+        mask = tf.cast(i >= j, dtype="int32")   # 절반은 1이고 나머지는 0인 (sequence_length, sequence_length) 크기의 행렬을 만든다.
+        # 배치 축에 반복하여 (batch_size, sequence_length, sequence_length) 크기의 행렬을 얻는다.
+        mask = tf.reshape(mask, (1, input_shape[1], input_shape[1]))
+        mult = tf.concat([
+            tf.expand_dims(batch_size, -1),
+            tf.constant([1, 1], dtype=tf.int32)
+        ], axis=0)
+        return tf.tile(mask, mult)
+```
+
+이제 디코더의 정방향 패스를 구현하는 완전한 `call()` 메소드를 작성한다.
+
+**코드 11-35. TransformerDecoder의 정방향 패스**
+```
+    def call(self, inputs, encoder_outputs, mask=None):
+        causal_mask = self.get_causal_attention_mask(inputs)        # 코잘 마스킹을 추출한다.
+        # 타깃 시퀀스에 있는 패딩 위치를 나타내는 입력 마스킹을 준비한다.
+        if mask is not None:
+            padding_mask = tf.cast(mask[:, tf.newaxis, :], dtype="int32")
+            padding_mask = tf.minimum(padding_mask, causal_mask)    # 두 마스킹을 합친다.
+        attention_output_1 = self.attention_1(
+            query=inputs,
+            value=inputs,
+            key=inputs,
+            attention_mask=causal_mask,
+        )
+        attention_output_1 = self.layernorm_1(inputs + attention_output_1)
+        attention_output_2 = self.attention_2(
+            query=attention_output_1,
+            value=encoder_outputs,
+            key=encoder_outputs,
+            attention_mask=padding_mask,
+        )
+        attention_output_2 = self.layernorm_2(attention_output_1 + attention_output_2)
+        proj_output = self.dense_proj(attention_output_2)
+        return self.layernorm_3(attention_output_2 + proj_output)
+```
+
+#### 기계 번역을 위한 트랜스포머
+
+엔드-투-엔드 트랜스포머가 훈련할 모델이다. 이 모델은 소스 시퀀스와 타깃 시퀀스를 한 스텝 앞의 타깃 시퀀스에 매핑한다. 지금까지 만든 `PositionalEmbedding` 층, `TransformerEncoder`, `TransformerDecoder` 클래스를 합치면 된다. 인코더와 디코더는 모두 입출력 크기에 영향을 받지 않으므로 여러 개를 쌓아 더 강력한 인코더와 디코더를 만들 수 있다. 이 예에서는 하나씩만 사용한다.
+
+**코드 11-36. 엔드-투-엔드 트랜스포머**
+```
+embed_dim = 256
+dense_dim = 2048
+num_heads = 8
+
+encoder_inputs = keras.Input(shape=(None, ), dtype="int64", name="english")
+x = PositionalEmbedding(sequence_length, vocab_size, embed_dim)(encoder_inputs)
+encoder_outputs = TransformerEncoder(embed_dim, dense_dim, num_heads)(x)
+
+decoder_inputs = keras.Input(shape=(None, ), dtype="int64", name="spanish")
+x = PositionalEmbedding(sequence_length, vocab_size, embed_dim)(decoder_inputs)
+x = TransformerDecoder(embed_dim, dense_dim, num_heads)(x, encoder_outputs)
+x = layers.Dropout(0.5)(x)
+decoder_outputs = layers.Dense(vocab_size, activation="softmax")(x)
+
+transformer = keras.Model(inputs=[encoder_inputs, decoder_inputs], outputs=decoder_outputs)
+```
+
+이제 모델을 훈련한다.
+
+**코드 11-37. 시퀀스-투-시퀀스 트랜스포머 훈련하기**
+```
+transformer.compile(
+    optimizer="rmsprop",
+    loss="sparse_categorical_crossentropy",
+    metrics=["accuracy"],
+)
+
+transformer.fit(
+    train_ds,
+    epochs=30,
+    validation_data=val_ds,
+)
+```
+
+마지막으로 모델을 사용하여 테스트 세트에 있는, 이전에 본 적 없는 영어 문장을 번역해 보자. 이 과정은 시퀀스-투-시퀀스 RNN 모델의 과정과 동일하다.
+
+**코드 11-38. 트랜스포머 모델을 사용하여 새로운 문장 번역하기**
+```
+import numpy as np
+
+spa_vocab = target_vectorization.get_vocabulary()
+spa_index_lookup = dict(zip(range(len(spa_vocab)), spa_vocab))
+max_decoded_sentence_length = 20
+
+def decode_sequence(input_sentence):
+    tokenized_input_sentence = source_vectorization([input_sentence])
+    decoded_sentence = "[start]"
+    for i in range(max_decoded_sentence_length):
+        tokenized_target_sentence = target_vectorization([decoded_sentence])[:, :-1]
+        predictions = transformer([tokenized_input_sentence, tokenized_target_sentence])
+        sampled_token_index = np.argmax(predictions[0, i, :])
+        sampled_token = spa_index_lookup[sampled_token_index]
+        decoded_sentence += (" " + sampled_token)
+        if sampled_token == "[end]":
+            break
+    return decoded_sentence
+
+test_eng_texts = [pair[0] for pair in test_pairs]
+for _ in range(20):
+    input_sentence = random.choice(test_eng_texts)
+    print("-")
+    print(input_sentence)
+    print(decode_sequence(input_sentence))
+```
+
+**코드 11-39. 트랜스포머 번역 모델의 결과 샘플**
+```
+
+```
+
+
+
+## 11.6 요약
+
+- 두 종류의 NLP 모델이 있다. 단어 순서를 고려하지 않고 단어 집합이나 N-그램을 처리하는 **BoW 모델**과 단어를 순서대로 처리하는 **시퀀스 모델**이다. BoW 모델은 Dense 층으로 구성되지만 시퀀스 모델은 RNN, 1D 컨브넷, 트랜스포머로 만들 수 있다.
+- 텍스트 분류의 경우 훈련 데이터 샘플 개수와 샘플당 평균 단어 개수의 비율을 사용하면 BoW 모델을 사용할지 시퀀스 모델을 사용할지 결정하는 데 도움이 된다.
+- **단어 임베딩**(word embedding)은 단어 사이의 의미 관계를 단어를 표현하는 벡터 사이의 거리로 모델링한 벡터 공간이다.
+- **시퀀스-투-시퀀스 학습**은 기계 번역을 포함하여 많은 NLP 문제를 해결하는 데 적용할 수 있는 일반적이고 강력한 학습 프레임워크이다. 시퀀스-투-시퀀스 모델은 소스 시퀀스를 처리하는 인코더, 인코더가 처리한 소스 시퀀스의 도움을 받아 과거 토큰에서 타깃 시퀀스의 미래 토큰을 예측하는 디코더로 구성된다.
+- **뉴럴 어텐션**은 문맥을 고려한 단어 표현을 만드는 방법으로 트랜스포머 아키텍처의 기초가 된다.
+- `TransformerEncoder`, `TransformerDecoder`로 구성된 트랜스포머 아키텍처는 시퀀스-투-시퀀스 작업에서 훌륭한 결과를 만든다. 이 모델의 앞부분인 `TransformerEncoder`는 텍스트 분류 또는 입력이 하나인 어떤 NLP 작업에도 사용할 수 있다.
