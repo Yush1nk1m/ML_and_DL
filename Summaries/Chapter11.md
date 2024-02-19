@@ -1936,7 +1936,729 @@ for _ in range(20):
 
 **코드 11-39. 트랜스포머 번역 모델의 결과 샘플**
 ```
+[2, 3, 5, 7, 1, 5, 6]
+i write rewrite and [UNK] rewrite again
+['',
+ '[UNK]',
+ 'erase',
+ 'write',
+ 'then',
+ 'rewrite',
+ 'poppy',
+ 'i',
+ 'blooms',
+ 'and',
+ 'again',
+ 'a']
+tf.Tensor([ 7  3  5  9  1  5 10], shape=(7,), dtype=int64)
+i write rewrite and [UNK] rewrite again
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+ 17 80.2M   17 13.7M    0     0   143k      0  0:09:30  0:01:37  0:07:53     0:07:34  0:00:54  0:06:40  201k^C
 
+gzip: stdin: unexpected end of file
+tar: 아카이브에 예기치 않은 파일 끝 문자
+tar: 아카이브에 예기치 않은 파일 끝 문자
+tar: Error is not recoverable: exiting now
+I first saw this back in the early 90s on UK TV, i did like it then but i missed the chance to tape it, many years passed but the film always stuck with me and i lost hope of seeing it TV again, the main thing that stuck with me was the end, the hole castle part really touched me, its easy to watch, has a great story, great music, the list goes on and on, its OK me saying how good it is but everyone will take there own best bits away with them once they have seen it, yes the animation is top notch and beautiful to watch, it does show its age in a very few parts but that has now become part of it beauty, i am so glad it has came out on DVD as it is one of my top 10 films of all time. Buy it or rent it just see it, best viewing is at night alone with drink and food in reach so you don't have to stop the film.<br /><br />Enjoy
+2024-02-19 16:53:55.812099: I tensorflow/core/util/port.cc:113] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2024-02-19 16:53:55.948795: E external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:9261] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2024-02-19 16:53:55.948886: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:607] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2024-02-19 16:53:55.964985: E external/local_xla/xla/stream_executor/cuda/cuda_blas.cc:1515] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2024-02-19 16:53:56.003036: I tensorflow/core/platform/cpu_feature_guard.cc:182] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F AVX512_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2024-02-19 16:53:56.842385: W tensorflow/compiler/tf2tensorrt/utils/py_utils.cc:38] TF-TRT Warning: Could not find TensorRT
+inputs.shape: (32,)
+inputs.dtype: <dtype: 'string'>
+targets.shape: (32,)
+targets.dtype: <dtype: 'int32'>
+inputs[0]: tf.Tensor(b"It would require the beauty and eloquence of Shakespeare to do justice to this outstanding cinematic feat. Nevertheless, I'll give it a go.<br /><br />As far as adaptations of Hamlet go this one is already at a better starting point than all other versions since it encompasses the entire play. Still this is no guarantee for a first-rate movie, or even a good one. Usually I'm not much for movies that are overlong and the trend that seems to be prevalent in Hollywood today, namely that movies should be at least two hours long, preferably three, is one that hopefully won't last long. Few stories are strong enough to withstand such extensive exploration and could do with some cutting. Making a four-hour-long movie and keeping it interesting is no small undertaking, but Kenneth Branagh pulls it off with flying colours. He has managed to make a very long movie seem no more than any average movie. I was completely engrossed from start to finish.<br /><br />The cast is excellent with Kenneth Branagh himself as the tormented prince giving a strong and memorable performance. He manages to convey his feelings admirably through his voice and one does not have to be an expert on Shakespearean verse to catch the myriad of emotions that are waging inside him. Kate Winslet was a positive surprise, I must say. I didn't know what to expect really. I've always liked her well enough as an actor, but wasn't sure she could pull off playing Shakespeare. Well, she certainly eradicated all doubts with her performance. She is the best Ophelia I have seen and lent such depth to the character and was simply wonderful. Other brilliant performances are Derek Jacobi as Claudius, Richard Briers as Polonius and Nicholas Farrell as Horatio to name but a few. I liked the fact that Branagh used some internationally more famous stars to play in some of the minor roles; I especially enjoyed the sparring between Hamlet and the gravedigger played by Billy Crystal.<br /><br />The setting of the play in the 19th century gives a welcome change to the usually gloomier Gothic settings. It is overall much lighter than other versions I've seen, more colourful and lavish, but this does not distract from the tragedy of the play. It is exceptional, stylish and aesthetically pleasing, a definite delight to the eye and other senses as well. The music by Patrick Doyle is as always magical and thoroughly in tune with the movie. One can only feel a deep sense of satisfaction after having seen this. I am shocked and appalled that this exquisite work of art did not win an Academy award for best picture, even more so that it wasn't even nominated. There is no way there was a better movie made that year, or any other year for that matter. This is as close to perfection as you can hope to get.<br /><br />To sum up, a stunning work of pure genius and I cannot see how anyone could top this. My hat's off to you Mr. Branagh.", shape=(), dtype=string)
+targets[0]: tf.Tensor(1, shape=(), dtype=int32)
+inputs.shape: (32, 20000)
+inputs.dtype: <dtype: 'float32'>
+targets.shape: (32,)
+targets.dtype: <dtype: 'int32'>
+inputs[0]: tf.Tensor([1. 1. 1. ... 0. 0. 0.], shape=(20000,), dtype=float32)
+targets[0]: tf.Tensor(0, shape=(), dtype=int32)
+Model: "model_2"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ input_3 (InputLayer)        [(None, 20000)]           0         
+                                                                 
+ dense_4 (Dense)             (None, 16)                320016    
+                                                                 
+ dropout_2 (Dropout)         (None, 16)                0         
+                                                                 
+ dense_5 (Dense)             (None, 1)                 17        
+                                                                 
+=================================================================
+Total params: 320033 (1.22 MB)
+Trainable params: 320033 (1.22 MB)
+Non-trainable params: 0 (0.00 Byte)
+_________________________________________________________________
+Epoch 1/10
+625/625 [==============================] - 4s 5ms/step - loss: 0.4151 - accuracy: 0.8242 - val_loss: 0.2836 - val_accuracy: 0.8872
+Epoch 2/10
+625/625 [==============================] - 2s 3ms/step - loss: 0.2745 - accuracy: 0.8980 - val_loss: 0.2692 - val_accuracy: 0.8924
+Epoch 3/10
+625/625 [==============================] - 2s 3ms/step - loss: 0.2386 - accuracy: 0.9170 - val_loss: 0.2790 - val_accuracy: 0.8984
+Epoch 4/10
+625/625 [==============================] - 2s 3ms/step - loss: 0.2247 - accuracy: 0.9231 - val_loss: 0.2968 - val_accuracy: 0.8940
+Epoch 5/10
+625/625 [==============================] - 2s 3ms/step - loss: 0.2174 - accuracy: 0.9288 - val_loss: 0.3044 - val_accuracy: 0.8918
+Epoch 6/10
+625/625 [==============================] - 2s 3ms/step - loss: 0.2107 - accuracy: 0.9319 - val_loss: 0.3139 - val_accuracy: 0.8920
+Epoch 7/10
+625/625 [==============================] - 2s 3ms/step - loss: 0.2080 - accuracy: 0.9359 - val_loss: 0.3260 - val_accuracy: 0.8924
+Epoch 8/10
+625/625 [==============================] - 2s 3ms/step - loss: 0.2021 - accuracy: 0.9392 - val_loss: 0.3390 - val_accuracy: 0.8902
+Epoch 9/10
+625/625 [==============================] - 2s 3ms/step - loss: 0.2031 - accuracy: 0.9383 - val_loss: 0.3421 - val_accuracy: 0.8826
+Epoch 10/10
+625/625 [==============================] - 2s 3ms/step - loss: 0.2011 - accuracy: 0.9381 - val_loss: 0.3641 - val_accuracy: 0.8884
+782/782 [==============================] - 2s 2ms/step - loss: 0.2873 - accuracy: 0.8878
+테스트 정확도: 0.888
+Model: "model"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ input_1 (InputLayer)        [(None, 20000)]           0         
+                                                                 
+ dense (Dense)               (None, 16)                320016    
+                                                                 
+ dropout (Dropout)           (None, 16)                0         
+                                                                 
+ dense_1 (Dense)             (None, 1)                 17        
+                                                                 
+=================================================================
+Total params: 320033 (1.22 MB)
+Trainable params: 320033 (1.22 MB)
+Non-trainable params: 0 (0.00 Byte)
+_________________________________________________________________
+Epoch 1/10
+---------------------------------------------------------------------------
+KeyboardInterrupt                         Traceback (most recent call last)
+Cell In[11], line 1
+----> 1 text_vectorization.adapt(text_only_train_ds)
+      3 tfidf_2gram_train_ds = train_ds.map(
+      4     lambda x, y: (text_vectorization(x), y),
+      5     num_parallel_calls=8,
+      6 )
+      8 tfidf_2gram_val_ds = val_ds.map(
+      9     lambda x, y: (text_vectorization(x), y),
+     10     num_parallel_calls=8,
+     11 )
+
+File ~/.local/lib/python3.10/site-packages/keras/src/layers/preprocessing/text_vectorization.py:473, in TextVectorization.adapt(self, data, batch_size, steps)
+    423 def adapt(self, data, batch_size=None, steps=None):
+    424     """Computes a vocabulary of string terms from tokens in a dataset.
+    425 
+    426     Calling `adapt()` on a `TextVectorization` layer is an alternative to
+   (...)
+    471           argument is not supported with array inputs.
+    472     """
+--> 473     super().adapt(data, batch_size=batch_size, steps=steps)
+
+File ~/.local/lib/python3.10/site-packages/keras/src/engine/base_preprocessing_layer.py:258, in PreprocessingLayer.adapt(self, data, batch_size, steps)
+    256 with data_handler.catch_stop_iteration():
+...
+     54                                       inputs, attrs, num_outputs)
+     55 except core._NotOkStatusException as e:
+     56   if name is not None:
+
+KeyboardInterrupt: 
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+---------------------------------------------------------------------------
+RuntimeError                              Traceback (most recent call last)
+Cell In[6], line 2
+      1 inputs = keras.Input(shape=(1, ), dtype="string")
+----> 2 processed_inputs = text_vectorization(inputs)
+      3 outputs = model(processed_inputs)
+      4 inference_model = keras.Model(inputs, outputs)
+
+File ~/.local/lib/python3.10/site-packages/keras/src/utils/traceback_utils.py:70, in filter_traceback.<locals>.error_handler(*args, **kwargs)
+     67     filtered_tb = _process_traceback_frames(e.__traceback__)
+     68     # To get the full stack trace, call:
+     69     # `tf.debugging.disable_traceback_filtering()`
+---> 70     raise e.with_traceback(filtered_tb) from None
+     71 finally:
+     72     del filtered_tb
+
+File ~/.local/lib/python3.10/site-packages/keras/src/layers/preprocessing/index_lookup.py:926, in IndexLookup._ensure_known_vocab_size(self)
+    924     return
+    925 if self._frozen_vocab_size is None:
+--> 926     raise RuntimeError(
+    927         f"When using `output_mode={self.output_mode}` "
+    928         "and `pad_to_max_tokens=False`, "
+    929         "you must set the layer's vocabulary before calling it. Either "
+    930         "pass a `vocabulary` argument to the layer, or call `adapt` "
+    931         "with some sample data.".format(self.output_mode)
+...
+
+When using `output_mode=tf_idf` and `pad_to_max_tokens=False`, you must set the layer's vocabulary before calling it. Either pass a `vocabulary` argument to the layer, or call `adapt` with some sample data.
+
+Call arguments received by layer 'string_lookup_1' (type StringLookup):
+  • inputs=tf.RaggedTensor(values=Tensor("text_vectorization_1/StringNGrams/StringNGrams:0", shape=(None,), dtype=string), row_splits=Tensor("text_vectorization_1/StringNGrams/StringNGrams:1", shape=(None,), dtype=int64))
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+---------------------------------------------------------------------------
+NameError                                 Traceback (most recent call last)
+Cell In[7], line 6
+      1 import tensorflow as tf
+      3 raw_text_data = tf.convert_to_tensor([
+      4     ["That was an excellent movie, I loved it."],
+      5 ])
+----> 6 predictions = inference_model(raw_text_data)
+      7 print(f"긍정적인 리뷰일 확률: {float(predictions[0] * 100):.2f}%%")
+
+NameError: name 'inference_model' is not defined
+Model: "model_1"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ input_2 (InputLayer)        [(None, None)]            0         
+                                                                 
+ tf.one_hot_1 (TFOpLambda)   (None, None, 20000)       0         
+                                                                 
+ bidirectional_1 (Bidirecti  (None, 64)                5128448   
+ onal)                                                           
+                                                                 
+ dropout_1 (Dropout)         (None, 64)                0         
+                                                                 
+ dense_1 (Dense)             (None, 1)                 65        
+                                                                 
+=================================================================
+Total params: 5128513 (19.56 MB)
+Trainable params: 5128513 (19.56 MB)
+Non-trainable params: 0 (0.00 Byte)
+_________________________________________________________________
+Epoch 1/10
+2024-02-15 22:22:56.652434: I external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:454] Loaded cuDNN version 8907
+2024-02-15 22:22:57.736422: I external/local_xla/xla/service/service.cc:168] XLA service 0x7fa9641b3e30 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+2024-02-15 22:22:57.736451: I external/local_xla/xla/service/service.cc:176]   StreamExecutor device (0): NVIDIA GeForce RTX 3060, Compute Capability 8.6
+2024-02-15 22:22:57.744293: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:269] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1708003377.808500   56078 device_compiler.h:186] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+625/625 [==============================] - 114s 177ms/step - loss: 0.5594 - accuracy: 0.7156 - val_loss: 0.3928 - val_accuracy: 0.8550
+Epoch 2/10
+625/625 [==============================] - 110s 176ms/step - loss: 0.3679 - accuracy: 0.8605 - val_loss: 0.3176 - val_accuracy: 0.8742
+Epoch 3/10
+625/625 [==============================] - 110s 177ms/step - loss: 0.3001 - accuracy: 0.8945 - val_loss: 0.3370 - val_accuracy: 0.8776
+Epoch 4/10
+625/625 [==============================] - 110s 177ms/step - loss: 0.2568 - accuracy: 0.9126 - val_loss: 0.3106 - val_accuracy: 0.8832
+Epoch 5/10
+625/625 [==============================] - 110s 176ms/step - loss: 0.2256 - accuracy: 0.9255 - val_loss: 0.3234 - val_accuracy: 0.8882
+Epoch 6/10
+625/625 [==============================] - 110s 176ms/step - loss: 0.1969 - accuracy: 0.9348 - val_loss: 0.3165 - val_accuracy: 0.8678
+Epoch 7/10
+625/625 [==============================] - 110s 176ms/step - loss: 0.1729 - accuracy: 0.9445 - val_loss: 0.3729 - val_accuracy: 0.8648
+Epoch 8/10
+625/625 [==============================] - 110s 176ms/step - loss: 0.1486 - accuracy: 0.9538 - val_loss: 0.3465 - val_accuracy: 0.8794
+Epoch 9/10
+625/625 [==============================] - 110s 176ms/step - loss: 0.1287 - accuracy: 0.9608 - val_loss: 0.5675 - val_accuracy: 0.8794
+Epoch 10/10
+625/625 [==============================] - 110s 176ms/step - loss: 0.1037 - accuracy: 0.9700 - val_loss: 0.4341 - val_accuracy: 0.8820
+782/782 [==============================] - 80s 101ms/step - loss: 0.3297 - accuracy: 0.8774
+테스트 정확도: 0.877
+Model: "model_2"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ input_3 (InputLayer)        [(None, None)]            0         
+                                                                 
+ embedding_1 (Embedding)     (None, None, 256)         5120000   
+                                                                 
+ bidirectional_2 (Bidirecti  (None, 64)                73984     
+ onal)                                                           
+                                                                 
+ dropout_2 (Dropout)         (None, 64)                0         
+                                                                 
+ dense_2 (Dense)             (None, 1)                 65        
+                                                                 
+=================================================================
+Total params: 5194049 (19.81 MB)
+Trainable params: 5194049 (19.81 MB)
+Non-trainable params: 0 (0.00 Byte)
+_________________________________________________________________
+Epoch 1/10
+625/625 [==============================] - 43s 65ms/step - loss: 0.5375 - accuracy: 0.7312 - val_loss: 0.4580 - val_accuracy: 0.8298
+Epoch 2/10
+625/625 [==============================] - 30s 48ms/step - loss: 0.3719 - accuracy: 0.8587 - val_loss: 0.5169 - val_accuracy: 0.8004
+Epoch 3/10
+...
+Epoch 10/10
+625/625 [==============================] - 30s 48ms/step - loss: 0.1134 - accuracy: 0.9654 - val_loss: 0.5077 - val_accuracy: 0.8664
+782/782 [==============================] - 12s 13ms/step - loss: 0.3383 - accuracy: 0.8722
+테스트 정확도: 0.872
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+tf.Tensor(
+[[ True  True  True  True False False False]
+ [ True  True  True  True  True False False]
+ [ True  True False False False False False]], shape=(3, 7), dtype=bool)
+Model: "model_3"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ input_4 (InputLayer)        [(None, None)]            0         
+                                                                 
+ embedding_3 (Embedding)     (None, None, 256)         5120000   
+                                                                 
+ bidirectional_3 (Bidirecti  (None, 64)                73984     
+ onal)                                                           
+                                                                 
+ dropout_3 (Dropout)         (None, 64)                0         
+                                                                 
+ dense_3 (Dense)             (None, 1)                 65        
+                                                                 
+=================================================================
+Total params: 5194049 (19.81 MB)
+Trainable params: 5194049 (19.81 MB)
+Non-trainable params: 0 (0.00 Byte)
+_________________________________________________________________
+Epoch 1/10
+2024-02-15 23:29:25.605095: W tensorflow/core/common_runtime/type_inference.cc:339] Type inference failed. This indicates an invalid graph that escaped type checking. Error message: INVALID_ARGUMENT: expected compatible input types, but input 1:
+type_id: TFT_OPTIONAL
+args {
+  type_id: TFT_PRODUCT
+  args {
+    type_id: TFT_TENSOR
+    args {
+      type_id: TFT_INT32
+    }
+  }
+}
+ is neither a subtype nor a supertype of the combined inputs preceding it:
+type_id: TFT_OPTIONAL
+args {
+  type_id: TFT_PRODUCT
+  args {
+    type_id: TFT_TENSOR
+    args {
+      type_id: TFT_FLOAT
+    }
+  }
+}
+
+	for Tuple type infernce function 0
+	while inferring type of node 'cond_36/output/_23'
+625/625 [==============================] - 49s 71ms/step - loss: 0.4402 - accuracy: 0.7913 - val_loss: 0.3423 - val_accuracy: 0.8382
+Epoch 2/10
+625/625 [==============================] - 30s 48ms/step - loss: 0.2775 - accuracy: 0.8906 - val_loss: 0.2907 - val_accuracy: 0.8818
+Epoch 3/10
+625/625 [==============================] - 27s 44ms/step - loss: 0.2177 - accuracy: 0.9179 - val_loss: 0.3116 - val_accuracy: 0.8708
+Epoch 4/10
+625/625 [==============================] - 28s 45ms/step - loss: 0.1656 - accuracy: 0.9397 - val_loss: 0.3124 - val_accuracy: 0.8810
+Epoch 5/10
+625/625 [==============================] - 23s 37ms/step - loss: 0.1277 - accuracy: 0.9548 - val_loss: 0.3718 - val_accuracy: 0.8804
+Epoch 6/10
+625/625 [==============================] - 24s 38ms/step - loss: 0.0977 - accuracy: 0.9665 - val_loss: 0.3955 - val_accuracy: 0.8764
+Epoch 7/10
+625/625 [==============================] - 22s 35ms/step - loss: 0.0755 - accuracy: 0.9757 - val_loss: 0.4743 - val_accuracy: 0.8698
+Epoch 8/10
+625/625 [==============================] - 22s 34ms/step - loss: 0.0609 - accuracy: 0.9797 - val_loss: 0.4612 - val_accuracy: 0.8770
+Epoch 9/10
+625/625 [==============================] - 23s 36ms/step - loss: 0.0444 - accuracy: 0.9863 - val_loss: 0.5034 - val_accuracy: 0.8678
+Epoch 10/10
+625/625 [==============================] - 23s 37ms/step - loss: 0.0420 - accuracy: 0.9867 - val_loss: 0.6515 - val_accuracy: 0.8546
+782/782 [==============================] - 17s 19ms/step - loss: 0.3024 - accuracy: 0.8735
+테스트 정확도: 0.874
+--2024-02-15 23:40:55--  http://nlp.stanford.edu/data/glove.6B.zip
+nlp.stanford.edu (nlp.stanford.edu) 해석 중... 171.64.67.140
+다음으로 연결 중: nlp.stanford.edu (nlp.stanford.edu)|171.64.67.140|:80... 연결했습니다.
+HTTP 요청을 보냈습니다. 응답 기다리는 중... 302 Found
+위치: https://nlp.stanford.edu/data/glove.6B.zip [따라감]
+--2024-02-15 23:40:55--  https://nlp.stanford.edu/data/glove.6B.zip
+다음으로 연결 중: nlp.stanford.edu (nlp.stanford.edu)|171.64.67.140|:443... 연결했습니다.
+HTTP 요청을 보냈습니다. 응답 기다리는 중... 301 Moved Permanently
+위치: https://downloads.cs.stanford.edu/nlp/data/glove.6B.zip [따라감]
+--2024-02-15 23:40:56--  https://downloads.cs.stanford.edu/nlp/data/glove.6B.zip
+downloads.cs.stanford.edu (downloads.cs.stanford.edu) 해석 중... 171.64.64.22
+다음으로 연결 중: downloads.cs.stanford.edu (downloads.cs.stanford.edu)|171.64.64.22|:443... 연결했습니다.
+HTTP 요청을 보냈습니다. 응답 기다리는 중... 200 OK
+길이: 862182613 (822M) [application/zip]
+저장 위치: ‘glove.6B.zip’
+
+glove.6B.zip        100%[===================>] 822.24M  5.10MB/s    / 2m 46s   
+
+2024-02-15 23:43:43 (4.95 MB/s) - ‘glove.6B.zip’ 저장함 [862182613/862182613]
+
+단어 벡터 개수: 400000
+Model: "model_4"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ input_5 (InputLayer)        [(None, None)]            0         
+                                                                 
+ embedding_4 (Embedding)     (None, None, 100)         2000000   
+                                                                 
+ bidirectional_4 (Bidirecti  (None, 64)                34048     
+ onal)                                                           
+                                                                 
+ dropout_4 (Dropout)         (None, 64)                0         
+                                                                 
+ dense_4 (Dense)             (None, 1)                 65        
+                                                                 
+=================================================================
+Total params: 2034113 (7.76 MB)
+Trainable params: 34113 (133.25 KB)
+Non-trainable params: 2000000 (7.63 MB)
+_________________________________________________________________
+Epoch 1/10
+625/625 [==============================] - 47s 65ms/step - loss: 0.5733 - accuracy: 0.6966 - val_loss: 0.4716 - val_accuracy: 0.7818
+Epoch 2/10
+625/625 [==============================] - 38s 60ms/step - loss: 0.4517 - accuracy: 0.7956 - val_loss: 0.3891 - val_accuracy: 0.8324
+Epoch 3/10
+...
+Epoch 10/10
+625/625 [==============================] - 22s 35ms/step - loss: 0.2593 - accuracy: 0.8948 - val_loss: 0.3321 - val_accuracy: 0.8780
+782/782 [==============================] - 12s 11ms/step - loss: 0.3021 - accuracy: 0.8744
+테스트 정확도: 0.874
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+Found 20000 files belonging to 2 classes.
+Found 5000 files belonging to 2 classes.
+Found 25000 files belonging to 2 classes.
+Model: "model_1"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ input_2 (InputLayer)        [(None, None)]            0         
+                                                                 
+ embedding_1 (Embedding)     (None, None, 256)         5120000   
+                                                                 
+ transformer_encoder_1 (Tra  (None, None, 256)         543776    
+ nsformerEncoder)                                                
+                                                                 
+ global_max_pooling1d_1 (Gl  (None, 256)               0         
+ obalMaxPooling1D)                                               
+                                                                 
+ dropout_1 (Dropout)         (None, 256)               0         
+                                                                 
+ dense_5 (Dense)             (None, 1)                 257       
+                                                                 
+=================================================================
+Total params: 5664033 (21.61 MB)
+Trainable params: 5664033 (21.61 MB)
+Non-trainable params: 0 (0.00 Byte)
+_________________________________________________________________
+Epoch 1/20
+2024-02-16 19:41:48.736001: I external/local_xla/xla/service/service.cc:168] XLA service 0x7f7404943ed0 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+2024-02-16 19:41:48.736032: I external/local_xla/xla/service/service.cc:176]   StreamExecutor device (0): NVIDIA GeForce RTX 3060, Compute Capability 8.6
+2024-02-16 19:41:48.743705: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:269] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+2024-02-16 19:41:48.760317: I external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:454] Loaded cuDNN version 8907
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1708080108.809391    9184 device_compiler.h:186] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+625/625 [==============================] - 40s 58ms/step - loss: 0.5055 - accuracy: 0.7595 - val_loss: 0.3515 - val_accuracy: 0.8458
+Epoch 2/20
+625/625 [==============================] - 31s 49ms/step - loss: 0.3500 - accuracy: 0.8512 - val_loss: 0.3173 - val_accuracy: 0.8658
+Epoch 3/20
+625/625 [==============================] - 29s 47ms/step - loss: 0.3111 - accuracy: 0.8666 - val_loss: 0.3108 - val_accuracy: 0.8738
+Epoch 4/20
+625/625 [==============================] - 28s 45ms/step - loss: 0.2833 - accuracy: 0.8828 - val_loss: 0.3028 - val_accuracy: 0.8738
+Epoch 5/20
+625/625 [==============================] - 28s 45ms/step - loss: 0.2550 - accuracy: 0.8929 - val_loss: 0.2984 - val_accuracy: 0.8808
+Epoch 6/20
+625/625 [==============================] - 28s 44ms/step - loss: 0.2284 - accuracy: 0.9087 - val_loss: 0.3162 - val_accuracy: 0.8704
+Epoch 7/20
+625/625 [==============================] - 27s 44ms/step - loss: 0.1942 - accuracy: 0.9227 - val_loss: 0.2979 - val_accuracy: 0.8834
+Epoch 8/20
+625/625 [==============================] - 28s 44ms/step - loss: 0.1718 - accuracy: 0.9347 - val_loss: 0.3216 - val_accuracy: 0.8770
+Epoch 9/20
+625/625 [==============================] - 27s 44ms/step - loss: 0.1463 - accuracy: 0.9445 - val_loss: 0.3192 - val_accuracy: 0.8808
+Epoch 10/20
+625/625 [==============================] - 27s 43ms/step - loss: 0.1210 - accuracy: 0.9546 - val_loss: 0.3716 - val_accuracy: 0.8644
+Epoch 11/20
+625/625 [==============================] - 27s 43ms/step - loss: 0.0932 - accuracy: 0.9664 - val_loss: 0.3718 - val_accuracy: 0.8702
+Epoch 12/20
+625/625 [==============================] - 27s 44ms/step - loss: 0.0781 - accuracy: 0.9718 - val_loss: 0.3707 - val_accuracy: 0.8792
+Epoch 13/20
+625/625 [==============================] - 27s 43ms/step - loss: 0.0618 - accuracy: 0.9785 - val_loss: 0.6058 - val_accuracy: 0.8368
+...
+Epoch 20/20
+625/625 [==============================] - 27s 43ms/step - loss: 0.0186 - accuracy: 0.9935 - val_loss: 0.6172 - val_accuracy: 0.8706
+782/782 [==============================] - 12s 15ms/step - loss: 0.3063 - accuracy: 0.8758
+테스트 정확도: 0.876
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+Model: "model_1"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ input_2 (InputLayer)        [(None, None)]            0         
+                                                                 
+ positional_embedding_1 (Po  (None, None, 256)         5273600   
+ sitionalEmbedding)                                              
+                                                                 
+ transformer_encoder_1 (Tra  (None, None, 256)         543776    
+ nsformerEncoder)                                                
+                                                                 
+ global_max_pooling1d_1 (Gl  (None, 256)               0         
+ obalMaxPooling1D)                                               
+                                                                 
+ dropout_1 (Dropout)         (None, 256)               0         
+                                                                 
+ dense_5 (Dense)             (None, 1)                 257       
+                                                                 
+=================================================================
+Total params: 5817633 (22.19 MB)
+Trainable params: 5817633 (22.19 MB)
+Non-trainable params: 0 (0.00 Byte)
+_________________________________________________________________
+Epoch 1/20
+2024-02-17 16:35:27.655032: I external/local_xla/xla/service/service.cc:168] XLA service 0x7f67981f6900 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+2024-02-17 16:35:27.655077: I external/local_xla/xla/service/service.cc:176]   StreamExecutor device (0): NVIDIA GeForce RTX 3060, Compute Capability 8.6
+2024-02-17 16:35:27.662883: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:269] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+2024-02-17 16:35:27.681217: I external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:454] Loaded cuDNN version 8907
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1708155327.733506   52877 device_compiler.h:186] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+625/625 [==============================] - 43s 63ms/step - loss: 0.5159 - accuracy: 0.7467 - val_loss: 0.3898 - val_accuracy: 0.8158
+Epoch 2/20
+625/625 [==============================] - 34s 54ms/step - loss: 0.2954 - accuracy: 0.8741 - val_loss: 0.2788 - val_accuracy: 0.8876
+Epoch 3/20
+625/625 [==============================] - 31s 50ms/step - loss: 0.2336 - accuracy: 0.9046 - val_loss: 0.3839 - val_accuracy: 0.8450
+Epoch 4/20
+625/625 [==============================] - 31s 50ms/step - loss: 0.1906 - accuracy: 0.9259 - val_loss: 0.2853 - val_accuracy: 0.8916
+Epoch 5/20
+625/625 [==============================] - 32s 50ms/step - loss: 0.1622 - accuracy: 0.9376 - val_loss: 0.4403 - val_accuracy: 0.8714
+Epoch 6/20
+625/625 [==============================] - 32s 50ms/step - loss: 0.1374 - accuracy: 0.9477 - val_loss: 0.3832 - val_accuracy: 0.8588
+Epoch 7/20
+625/625 [==============================] - 31s 50ms/step - loss: 0.1150 - accuracy: 0.9566 - val_loss: 0.4561 - val_accuracy: 0.8776
+Epoch 8/20
+625/625 [==============================] - 30s 48ms/step - loss: 0.0917 - accuracy: 0.9657 - val_loss: 0.4035 - val_accuracy: 0.8778
+Epoch 9/20
+625/625 [==============================] - 30s 48ms/step - loss: 0.0738 - accuracy: 0.9742 - val_loss: 0.3997 - val_accuracy: 0.8722
+Epoch 10/20
+625/625 [==============================] - 30s 48ms/step - loss: 0.0551 - accuracy: 0.9799 - val_loss: 0.5129 - val_accuracy: 0.8700
+Epoch 11/20
+625/625 [==============================] - 30s 49ms/step - loss: 0.0466 - accuracy: 0.9852 - val_loss: 0.5779 - val_accuracy: 0.8738
+Epoch 12/20
+625/625 [==============================] - 30s 48ms/step - loss: 0.0358 - accuracy: 0.9880 - val_loss: 0.7725 - val_accuracy: 0.8624
+Epoch 13/20
+625/625 [==============================] - 30s 49ms/step - loss: 0.0264 - accuracy: 0.9909 - val_loss: 0.7750 - val_accuracy: 0.8716
+...
+Epoch 20/20
+625/625 [==============================] - 30s 48ms/step - loss: 0.0107 - accuracy: 0.9973 - val_loss: 1.2071 - val_accuracy: 0.8660
+782/782 [==============================] - 15s 19ms/step - loss: 0.2890 - accuracy: 0.8779
+테스트 정확도: 0.878
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+--2024-02-17 17:43:01--  http://storage.googleapis.com/download.tensorflow.org/data/spa-eng.zip
+storage.googleapis.com (storage.googleapis.com) 해석 중... 34.64.4.91, 34.64.4.123, 34.64.4.27, ...
+다음으로 연결 중: storage.googleapis.com (storage.googleapis.com)|34.64.4.91|:80... 연결했습니다.
+HTTP 요청을 보냈습니다. 응답 기다리는 중... 200 OK
+길이: 2638744 (2.5M) [application/zip]
+저장 위치: ‘spa-eng.zip’
+
+spa-eng.zip         100%[===================>]   2.52M  --.-KB/s    / 0.07s    
+
+2024-02-17 17:43:02 (37.0 MB/s) - ‘spa-eng.zip’ 저장함 [2638744/2638744]
+
+('There is a flower on the table.', '[start] Hay una flor sobre la mesa. [end]')
+inputs["english"].shape: (64, 20)
+inputs["spanish"].shape: (64, 20)
+targets.shape: (64, 20)
+Epoch 1/15
+2024-02-18 00:32:57.785105: W tensorflow/core/common_runtime/type_inference.cc:339] Type inference failed. This indicates an invalid graph that escaped type checking. Error message: INVALID_ARGUMENT: expected compatible input types, but input 1:
+type_id: TFT_OPTIONAL
+args {
+  type_id: TFT_PRODUCT
+  args {
+    type_id: TFT_TENSOR
+    args {
+      type_id: TFT_INT32
+    }
+  }
+}
+ is neither a subtype nor a supertype of the combined inputs preceding it:
+type_id: TFT_OPTIONAL
+args {
+  type_id: TFT_PRODUCT
+  args {
+    type_id: TFT_TENSOR
+    args {
+      type_id: TFT_FLOAT
+    }
+  }
+}
+
+	for Tuple type infernce function 0
+	while inferring type of node 'cond_35/output/_22'
+...
+2024-02-18 00:32:59.527696: I external/local_xla/xla/service/service.cc:176]   StreamExecutor device (0): NVIDIA GeForce RTX 3060, Compute Capability 8.6
+2024-02-18 00:32:59.534392: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:269] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1708183979.598704    6934 device_compiler.h:186] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+1302/1302 [==============================] - 88s 61ms/step - loss: 4.6846 - accuracy: 0.3193 - val_loss: 3.9046 - val_accuracy: 0.3865
+Epoch 2/15
+1302/1302 [==============================] - 72s 55ms/step - loss: 3.7190 - accuracy: 0.4167 - val_loss: 3.2981 - val_accuracy: 0.4628
+Epoch 3/15
+1302/1302 [==============================] - 75s 58ms/step - loss: 3.2073 - accuracy: 0.4739 - val_loss: 2.8680 - val_accuracy: 0.5182
+Epoch 4/15
+1302/1302 [==============================] - 73s 56ms/step - loss: 2.8477 - accuracy: 0.5148 - val_loss: 2.6100 - val_accuracy: 0.5536
+Epoch 5/15
+1302/1302 [==============================] - 72s 55ms/step - loss: 2.5733 - accuracy: 0.5477 - val_loss: 2.4218 - val_accuracy: 0.5813
+Epoch 6/15
+1302/1302 [==============================] - 73s 56ms/step - loss: 2.3515 - accuracy: 0.5756 - val_loss: 2.3014 - val_accuracy: 0.5988
+Epoch 7/15
+1302/1302 [==============================] - 72s 55ms/step - loss: 2.1632 - accuracy: 0.6002 - val_loss: 2.2022 - val_accuracy: 0.6155
+Epoch 8/15
+1302/1302 [==============================] - 72s 55ms/step - loss: 2.0061 - accuracy: 0.6210 - val_loss: 2.1312 - val_accuracy: 0.6254
+Epoch 9/15
+1302/1302 [==============================] - 72s 56ms/step - loss: 1.8693 - accuracy: 0.6397 - val_loss: 2.0843 - val_accuracy: 0.6330
+Epoch 10/15
+1302/1302 [==============================] - 75s 57ms/step - loss: 1.7498 - accuracy: 0.6565 - val_loss: 2.0352 - val_accuracy: 0.6407
+Epoch 11/15
+1302/1302 [==============================] - 73s 56ms/step - loss: 1.6442 - accuracy: 0.6710 - val_loss: 1.9979 - val_accuracy: 0.6473
+Epoch 12/15
+1302/1302 [==============================] - 72s 56ms/step - loss: 1.5516 - accuracy: 0.6846 - val_loss: 1.9783 - val_accuracy: 0.6516
+Epoch 13/15
+1302/1302 [==============================] - 74s 57ms/step - loss: 1.4694 - accuracy: 0.6961 - val_loss: 1.9510 - val_accuracy: 0.6564
+Epoch 14/15
+1302/1302 [==============================] - 74s 57ms/step - loss: 1.3973 - accuracy: 0.7070 - val_loss: 1.9382 - val_accuracy: 0.6579
+Epoch 15/15
+1302/1302 [==============================] - 74s 57ms/step - loss: 1.3355 - accuracy: 0.7165 - val_loss: 1.9231 - val_accuracy: 0.6609
+<keras.src.callbacks.History at 0x7f76a81b3d30>
+-
+This is nonsense.
+1/1 [==============================] - 2s 2s/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+[start] esto es [UNK] [end]
+-
+You'll learn how to do it sooner or later.
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+[start] aprenderás a hacerlo tarde o temprano [end]
+-
+They haven't come back home yet.
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 19ms/step
+...
+Do come in.
+1/1 [==============================] - 0s 23ms/step
+1/1 [==============================] - 0s 19ms/step
+[start] pasa [end]
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+Epoch 1/30
+1302/1302 [==============================] - 65s 46ms/step - loss: 3.7966 - accuracy: 0.4396 - val_loss: 2.8888 - val_accuracy: 0.5360
+Epoch 2/30
+1302/1302 [==============================] - 55s 42ms/step - loss: 2.8631 - accuracy: 0.5489 - val_loss: 2.5393 - val_accuracy: 0.5863
+Epoch 3/30
+1302/1302 [==============================] - 57s 43ms/step - loss: 2.5672 - accuracy: 0.5926 - val_loss: 2.4259 - val_accuracy: 0.6058
+Epoch 4/30
+1302/1302 [==============================] - 56s 43ms/step - loss: 2.4027 - accuracy: 0.6189 - val_loss: 2.3692 - val_accuracy: 0.6193
+Epoch 5/30
+1302/1302 [==============================] - 56s 43ms/step - loss: 2.2945 - accuracy: 0.6373 - val_loss: 2.3263 - val_accuracy: 0.6255
+Epoch 6/30
+1302/1302 [==============================] - 56s 43ms/step - loss: 2.2211 - accuracy: 0.6512 - val_loss: 2.3252 - val_accuracy: 0.6329
+Epoch 7/30
+1302/1302 [==============================] - 57s 44ms/step - loss: 2.1622 - accuracy: 0.6625 - val_loss: 2.2840 - val_accuracy: 0.6428
+Epoch 8/30
+1302/1302 [==============================] - 57s 43ms/step - loss: 2.0995 - accuracy: 0.6751 - val_loss: 2.2601 - val_accuracy: 0.6526
+Epoch 9/30
+1302/1302 [==============================] - 55s 43ms/step - loss: 2.0429 - accuracy: 0.6858 - val_loss: 2.2292 - val_accuracy: 0.6586
+Epoch 10/30
+1302/1302 [==============================] - 55s 43ms/step - loss: 1.9959 - accuracy: 0.6944 - val_loss: 2.2468 - val_accuracy: 0.6618
+Epoch 11/30
+1302/1302 [==============================] - 55s 43ms/step - loss: 1.9605 - accuracy: 0.7006 - val_loss: 2.2823 - val_accuracy: 0.6604
+Epoch 12/30
+1302/1302 [==============================] - 56s 43ms/step - loss: 1.9281 - accuracy: 0.7068 - val_loss: 2.2606 - val_accuracy: 0.6647
+Epoch 13/30
+...
+Epoch 29/30
+1302/1302 [==============================] - 56s 43ms/step - loss: 1.6598 - accuracy: 0.7572 - val_loss: 2.4436 - val_accuracy: 0.6734
+Epoch 30/30
+1302/1302 [==============================] - 56s 43ms/step - loss: 1.6471 - accuracy: 0.7595 - val_loss: 2.4349 - val_accuracy: 0.6683
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+<keras.src.callbacks.History at 0x7f5b19562470>
+---------------------------------------------------------------------------
+FileExistsError                           Traceback (most recent call last)
+Cell In[1], line 7
+      5 train_dir = base_dir / "train"
+      6 for category in ("neg", "pos"):
+----> 7     os.makedirs(val_dir / category)
+      8     files = os.listdir(train_dir / category)
+      9     random.Random(1337).shuffle(files)
+
+File /usr/lib/python3.10/os.py:225, in makedirs(name, mode, exist_ok)
+    223         return
+    224 try:
+--> 225     mkdir(name, mode)
+    226 except OSError:
+    227     # Cannot rely on checking for EEXIST, since the operating system
+    228     # could give priority to other errors like EACCES or EROFS
+    229     if not exist_ok or not path.isdir(name):
+
+FileExistsError: [Errno 17] File exists: 'aclImdb/val/neg'
+-
+What do you have?
+[start] qué tienes [end]
+-
+Mary's my niece.
+[start] el [UNK] a maría [end]
+-
+I am getting dressed.
+[start] me estoy empeorando [end]
+-
+Keep paddling.
+[start] [UNK] grados [end]
+-
+Tom's new book is about Mary.
+[start] el nuevo libro acerca de tom [end]
+-
+He really likes baseball.
+[start] a él le gusta el béisbol a realidad [end]
+-
+He seems to have been rich.
+[start] parece que él todavía no sea rico [end]
+-
+Tom might get lost.
+[start] tom se perdió el [UNK] [end]
+-
+I hate the guy who lives next door.
+[start] odio al hombre que vive la que viene la puerta [end]
+-
+Sing us a song in French.
+[start] [UNK] una canción en francés [end]
+-
+The clock has just struck ten.
+[start] el reloj acaba de [UNK] hasta diez [end]
+-
+We have no idea about his whereabouts.
+[start] no tenemos una idea de su alrededor del año [end]
+-
+Tom heard a car horn beep.
+[start] tom oyó un coche [UNK] a un [UNK] [end]
+-
+How was Tom's party?
+[start] cómo estuvo la fiesta de tom [end]
+-
+You're breaking the law.
+[start] estás loco la ley [end]
+-
+Keep an eye on the bags.
+[start] [UNK] a los ojos [end]
+-
+Tom does a pretty good job concealing his pain.
+[start] tom hace buen dolor bastante su dolor [end]
+-
+She talked him into accepting the bribe.
+[start] ella le gritó al perder el te [UNK] [end]
+-
+They don't like cats.
+[start] a ellos no les gustan los gatos [end]
+-
+I want Tom to win.
+[start] quiero que tom [UNK] [end]
 ```
 
 

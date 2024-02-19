@@ -50,3 +50,371 @@ def reweight_distribution(original_distribution, temperature=0.5):
 ```
 
 높은 온도는 엔트로피가 높은 샘플링 분포를 만들어 더 놀랍고 생소한 데이터를 생성한다. 반면 낮은 온도는 무작위성이 낮기 때문에 예상할 수 있는 데이터를 생성한다.
+
+### 12.1.4 케라스를 사용한 텍스트 생성 모델 구현
+
+언어 모델을 학습하기 위해 많은 텍스트 데이터가 필요하다. 위키피디아(Wikipedia)나 <반지의 제왕(The Lord of the Rings)>처럼 아주 큰 텍스트 파일이나 텍스트 파일의 묶음을 사용할 수 있다.
+
+이 예제에서는 IMDB 영화 리뷰 데이터셋을 사용하여 이전에 본 적 없는 영화 리뷰를 생성하는 방법을 학습시켜 본다. 따라서 이 언어 모델은 일반적인 영어가 아닌 영화 리뷰의 스타일과 주제를 모델링할 것이다.
+
+#### 데이터 준비
+
+IMDB 영화 리뷰 데이터셋을 내려받아 압축을 해제한다.
+
+**코드 12-2. IMDB 영화 리뷰 데이터셋 내려받아 압축 풀기**
+```
+!wget https://ai.stanford.edu/~amaas/data/sentiment/aclImdb_v1.tar.gz
+!tar -xf aclImdb_v1.tar.gz
+!rm -f aclImdb_v1.tar.gz
+```
+
+`label_mode=None` 옵션으로 `text_dataset_from_directory` 함수를 호출하여 파일을 읽어 각 파일의 텍스트 내용을 반환하는 데이터셋을 만들어 보자.
+
+**코드 12-3. 텍스트 파일(한 파일 = 한 샘플)에서 데이터셋 만들기**
+```
+import tensorflow as tf
+from tensorflow import keras
+
+dataset = keras.utils.text_dataset_from_directory(
+    directory="aclImdb", label_mode=None, batch_size=256,
+)
+dataset = dataset.map(lambda x: tf.strings.regex_replace(x, "<br />", " "))
+```
+
+`TextVectorization` 층을 사용하여 예제에서 사용할 어휘 사전을 만든다. 각 리뷰에서 처음 `sequence_length` 개의 단어만 사용한다.
+
+**코드 12-4. TextVectorization 층 준비하기**
+```
+from tensorflow.keras.layers import TextVectorization
+
+sequence_length = 100
+vocab_size = 15000
+text_vectorization = TextVectorization(
+    max_tokens=vocab_size,
+    output_mode="int",
+    # 길이가 100인 입력과 타깃을 사용한다(타깃은 한 스텝 차이가 나기 때문에 모델은 99개의 단어 시퀀스를 보게 된다).
+    output_sequence_length=sequence_length,
+)
+text_vectorization.adapt(dataset)
+```
+
+이 층을 사용해 언어 모델링 데이터셋을 만든다. 입력 샘플은 벡터화된 텍스트고 타깃은 한 스텝 앞의 동일 텍스트이다.
+
+**코드 12-5. 언어 모델링 데이터셋 만들기**
+```
+def prepare_Im_dataset(text_batch):
+    vectorized_sequences = text_vectorization(text_batch)
+    x = vectorized_sequences[:, :-1]    # 마지막 단어를 제외한 입력을 만든다.
+    y = vectorized_sequences[:, 1:]     # 첫 단어를 제외한 타깃을 만든다.
+    return x, y
+
+Im_dataset = dataset.map(prepare_Im_dataset, num_parallel_calls=8)
+```
+
+#### 트랜스포머 기반의 시퀀스-투-시퀀스 모델
+
+몇 개의 초기 단어가 주어지면 문장의 다음 단어에 대한 확률 분포를 예측하는 모델을 훈련한다. 초기 문장을 주입하고, 다음 단어를 샘플링하여 이 문장에 추가하는 식으로 짧은 문단을 생성할 때까지 반복한다.
+
+N개의 단어를 시퀀스로 입력받아 N+1번째 단어를 예측하는 모델을 훈련한다. 하지만 시퀀스 생성 관점에서 여기에는 몇 가지 이슈가 있다.
+
+첫 번째로, N개의 단어로 예측을 만드는 방법을 학습하지만 N개보다 적은 단어로 예측을 시작할 수 있어야 한다. 그렇지 않으면 비교적 긴 시작 문장을 사용해야 하는 제약이 생긴다.
+
+둘째로, 훈련에 사용하는 많은 시퀀스는 중복되어 있다. N=4일 때를 예로 "A complete sentence must have, at minimum, three things: a subject, verb and an object"는 다음과 같은 훈련 시퀀스를 만든다.
+
+- "A complete sentence must"
+- "complete sentence must have"
+- "sentence must have at"
+- ...
+- "verb and an object"
+
+이런 시퀀스를 모두 독립적인 샘플로 처리하는 모델은 이전에 처리했던 시퀀스를 여러 번 다시 인코딩해야 한다. 그렇다고 몇 단어를 건너뛰는 식으로 학습하면 훈련 데이터가 줄어들게 된다.
+
+이를 해결하기 위해 시퀀스-투-시퀀스 모델을 사용한다. 단어 N개의 시퀀스를 모델에 주입하고 한 스텝 다음의 시퀀스를 예측한다. 코잘 마스킹(causal masking)을 사용하여 어떤 인덱스 i에서 모델이 0부터 i까지 단어만 사용해서 i+1번째 단어를 예측하도록 만들 것이다. 대부분 중복되지만 N개의 다른 문제를 해결하도록 모델을 동시 훈련한다는 의미이다. 생성 단계에서는 하나의 단어만 모델에 전달해도 다음 단어에 대한 확률 분포를 만들 수 있을 것이다.
+
+텍스트 생성에서는 소스 시퀀스가 존재하지 않는다. 과거 토큰이 주어지면 타깃 시퀀스에 있는 다음 토큰을 예측할 뿐이다. 따라서 이 작업은 디코더만 사용해서 수행할 수 있다. 코잘 패딩 덕분에 디코더는 단어 N+1을 예측하기 위해 단어 0...N만 바라볼 것이다.
+
+11장의 `PositionalEmbedding`과 `TransformerDecoder`를 재사용하여 모델을 만들어 보자.
+
+**코드 12-6. 간단한 트랜스포머 기반 언어 모델**
+```
+from tensorflow.keras import layers
+embed_dim = 256
+latent_dim = 2048
+num_heads = 2
+
+inputs = keras.Input(shape=(None, ), dtype="int64")
+x = PositionalEmbedding(sequence_length, vocab_size, embed_dim)(inputs)
+x = TransformerDecoder(embed_dim, latent_dim, num_heads)(x, x)
+outputs = layers.Dense(vocab_size, activation="softmax")(x)
+
+model = keras.Model(inputs, outputs)
+
+model.compile(
+    optimizer="rmsprop",
+    loss="sparse_categorical_crossentropy",
+)
+```
+
+### 12.1.5 가변 온도 샘플링을 사용한 텍스트 생성 콜백
+
+콜백을 사용하여 에포크가 끝날 때마다 다양한 온도로 텍스트를 생성한다. 모델이 수렴하면서 생성된 텍스트가 어떻게 발전하는지, 온도가 샘플링 전략에 미치는 영향이 어떤지를 확인할 수 있다. 시작 단어로는 "this movie"를 사용한다. 즉, 이 두 단어를 시작으로 모든 텍스트를 생성할 것이다.
+
+**코드 12-7. 텍스트 생성 콜백**
+```
+import numpy as np
+
+tokens_index = dict(enumerate(text_vectorization.get_vocabulary()))
+
+def sample_next(predictions, temperature=1.0):
+    predictions = np.asarray(predictions).astype("float64")
+    predictions = np.log(predictions) / temperature
+    exp_preds = np.exp(predictions)
+    predictions = exp_preds / np.sum(exp_preds)
+    probas = np.random.multinomial(1, predictions, 1)
+    return np.argmax(probas)
+
+class TextGenerator(keras.callbacks.Callback):
+    def __init__(self,
+                 prompt,                # 텍스트 생성을 위한 시작 문장
+                 generate_length,       # 생성할 단어 개수
+                 model_input_length,
+                 temperatures=(1., ),   # 샘플링에 사용할 온도 범위
+                 print_freq=1):
+        self.prompt = prompt
+        self.generate_length = generate_length
+        self.model_input_length = model_input_length
+        self.temperatures = temperatures
+        self.print_freq = print_freq
+        
+    def on_epoch_end(self, epoch, logs=None):
+        if (epoch + 1) % self.print_freq != 0:
+            return
+        for temperature in self.temperatures:
+            print("== Generating with temperature", temperature)
+            sentence = self.prompt      # 시작 단어에서부터 텍스트를 생성한다.
+            for i in range(self.generate_length):
+                # 현재 시퀀스를 모델에 주입한다.
+                tokenized_sentence = text_vectorization([sentence])
+                predictions = self.model(tokenized_sentence)
+                # 마지막 타임스텝의 예측을 추출하여 다음 단어를 샘플링한다.
+                next_token = sample_next(predictions[0, i, :])
+                sampled_token = tokens_index[next_token]
+                # 새로운 단어를 현재 시퀀스에 추가하고 반복한다.
+                sentence += " " + sampled_token
+            print(sentence)
+
+prompt = "This movie"
+text_gen_callback = TextGenerator(
+    prompt,
+    generate_length=50,
+    model_input_length=sequence_length,
+    temperatures=(0.2, 0.5, 0.7, 1., 1.5)
+)
+```
+
+`fit()` 메소드를 호출해 보자.
+
+**코드 12-8. 언어 모델 훈련하기**
+```
+model.fit(Im_dataset, epochs=10, callbacks=[text_gen_callback])
+```
+
+낮은 온도는 매우 단조롭고 반복적인 텍스트를 만든다. 이로 인해 이따금 생성 단계가 루프 안에 갇힐 수 있다. 더 높은 온도에서 생성된 텍스트는 아주 흥미롭고 놀라우며 창의적이기도 하다. 매우 높은 온도에서는 국부적인 구조가 무너지기 시작하고 출력이 대체로 랜덤하게 보인다. 항상 다양한 샘플링 전략으로 실험해 보아야 한다. 학습된 구조와 무작위성 사이에 균형을 잘 맞추면 흥미로운 것을 만들 수 있다.
+
+GPT-3도 이 예제에서 훈련한 것과 사실상 동일하지만 트랜스포머 디코더를 쌓았으며 훨씬 큰 훈련 데이터를 사용했다.
+
+언어 모델이 하는 일은 사람이 살기 위해 언어를 사용하면서 생성하는 관찰 가능한 인공물(책, 온라인 영화 리뷰, 트윗)의 통계적 구조를 감지하는 것이다. 이런 인공물이 통계적 구조를 가지고 있다는 사실은 전적으로 사람이 언어를 구사하는 방식의 부수 효과이다.
+
+### 12.1.6 정리
+
+- 이전의 토큰이 주어지면 다음 토큰(들)을 예측하는 모델을 훈련하여 시퀀스 데이터를 생성할 수 있다.
+- 텍스트의 경우 이런 모델을 **언어 모델**이라고 부른다. 단어 또는 글자 단위 모두 가능하다.
+- 다음 토큰을 샘플링할 때 모델이 만든 출력에 집중하는 것과 무작위성을 주입하는 것 사이에 균형을 맞추어야 한다.
+- 이를 위해 소프트맥스 온도 개념을 사용한다. 항상 다양한 온도를 실험해서 적절한 값을 찾는다.
+
+
+
+## 12.2 딥드림
+
+**딥드림**(DeepDream)은 합성곱 신경망이 학습한 표현을 사용하여 예술적으로 이미지를 조작하는 기법이다. 딥드림은 다양한 종류의 강아지와 새가 있는 ImageNet 데이터셋에서 훈련된 컨브넷을 사용하였다.
+
+딥드림 알고리즘은 9장에서 소개된 컨브넷을 거꾸로 실행하는 컨브넷 필터 시각화 기법과 거의 동일하다. 컨브넷 상위 층에 있는 특정 필터의 활성화를 극대화하기 위해 컨브넷의 입력에 경사 상승법을 적용하였다. 몇 개의 사소한 차이를 빼면 딥드림도 동일한 아이디어를 사용한다.
+
+- 딥드림에서는 특정 필터가 아닌 전체 층의 활성화를 최대화한다. 한꺼번에 많은 특성을 섞어 시각화한다.
+- 빈 이미지나 노이즈가 조금 있는 입력이 아니라 이미 가지고 있는 이미지를 사용한다. 그 결과 기존 시각 패턴을 바탕으로 이미지의 요소들을 다소 예술적인 스타일로 왜곡시킨다.
+- 입력 이미지는 시각 품질을 높이기 위해 여러 다른 스케일(**옥타브**(octave))로 처리한다.
+
+### 12.2.1 케라스 딥드림 구현
+
+먼저 딥드림에 사용할 테스트 이미지를 준비해 보자. 바위가 많은 북부 캘리포니아 해안의 겨울 사진을 사용할 것이다.
+
+**코드 12-9. 테스트 이미지 내려받기**
+```
+from tensorflow import keras
+import matplotlib.pyplot as plt
+
+base_image_path = keras.utils.get_file(
+    "coast.jpg",
+    origin="https://img-datasets.s3.amazonaws.com/coast.jpg"
+)
+
+plt.axis("off")
+plt.imshow(keras.utils.load_img(base_image_path))
+```
+
+![테스트 이미지](image-96.png)
+
+그 다음 사전 훈련된 컨브넷이 필요하다. 케라스에는 `VGG16`, `VGG19`, `Xception`, `ResNet50` 등이 존재한다. 모두 ImageNet에서 훈련된 가중치를 함께 제공한다. 이 중 어느 것을 사용해도 딥드림을 구현할 수 있다. 각 컨브넷 구조가 학습한 특성이 다르기 때문에 어떤 컨브넷을 선택했느냐에 따라 시각화에 영향을 미친다. 딥드림에서 사용한 모델은 인셉션 모델이었다. 그러므로 여기에서도 케라스의 인셉션 V3 모델을 사용한다.
+
+**코드 12-10. 사전 훈련된 InceptionV3 모델 로드하기**
+```
+from tensorflow.keras.applications import inception_v3
+
+model = inception_v3.InceptionV3(weights="imagenet", include_top=False)
+```
+
+사전 훈련된 컨브넷을 사용하여 다음과 같이 다양한 중간 층의 활성화를 반환하는 특성 추출 모델을 만든다. 경사 상승법 단계 동안에 최대화할 손실에 대한 각 층의 기여도에 가중치를 주기 위해 스칼라 값을 선택한다. 다른 층을 선택하고 싶다면 `model.summary()`에서 제공되는 전체 층 이름을 참고하면 된다.
+
+**코드 12-11. 딥드림 손실에 대한 각 층의 기여도 설정하기**
+```
+layer_settings = {
+    "mixed4": 1.0,
+    "mixed5": 1.5,
+    "mixed6": 2.0,
+    "mixed7": 2.5,
+}
+
+outputs_dict = dict([
+    (layer.name, layer.output)
+    for layer in [
+        model.get_layer(name)
+        for name in layer_settings.keys()
+    ]
+])
+
+feature_extractor = keras.Model(inputs=model.inputs, outputs=outputs_dict)
+```
+
+그 다음 경사 상승법으로 각 스케일마다 최대화할 손실을 계산한다. 여러 층에 있는 모든 필터 활성화를 동시에 최대화할 것이다. 특별히 상위 층에 있는 활성화의 L2 노름에 대한 가중치 평균을 최대화한다. 정확히 어떤 층들을 선택했는지에 따라 (당연히 최종 손실에 기여한 정도에 따라) 만들어내는 시각 요소에 큰 영향을 미친다. 어떤 층을 선택할지 파라미터로 손쉽게 바꿀 수 있어야 좋다. 하위 층은 기하학적인 패턴을 만들고 상위 층은 ImageNet에 있는 클래스로 보이는 시각 요소를 만든다. 먼저 임의로 4개의 층을 선택해 본다.
+
+**코드 12-12. 딥드림 손실**
+```
+def compute_loss(input_image):
+    features = feature_extractor(input_image)   # 활성화를 추출한다.
+    loss = tf.zeros(shape=())                   # 손실을 0으로 초기화한다.
+    for name in features.keys():
+        coeff = layer_settings[name]
+        activation = features[name]
+        # 경계 부근의 인공적인 패턴을 피하기 위해 테두리가 아닌 픽셀만 손실에 추가한다.
+        loss += (coeff * tf.reduce_mean(tf.square(activation[:, 2:-2, 2:-2, :])))
+    return loss
+```
+
+이제 각 옥타브에서 실행할 경사 상승법 단계를 준비한다.
+
+**코드 12-13. 딥드림 경사 상승법 단계**
+```
+import tensorflow as tf
+
+@tf.function
+def gradient_ascent_step(image, learning_rate):
+    # 현재 이미지에 대한 딥드림 손실의 그레이디언트를 계산한다.
+    with tf.GradientTape() as tape:
+        tape.watch(image)
+        loss = compute_loss(image)
+    grads = tape.gradient(loss, image)
+    grads = tf.math.l2_normalize(grads)     # 그레이디언트를 정규화한다.
+    image += (learning_rate * grads)
+    return loss, image
+
+# 주어진 이미지 스케일(옥타브)에 대한 경사 상승법을 수행한다.
+def gradient_ascent_loop(image, iterations, learning_rate, max_loss=None):
+    for i in range(iterations):
+        loss, image = gradient_ascent_step(image, learning_rate)
+        # 손실이 임계 값을 넘으면 중지한다. 과도하게 최적화하면 원치 않는 이미지를 얻을 수 있다.
+        if max_loss is not None and loss > max_loss:
+            break
+        print(f"... 스텝 {i}에서 손실 값: {loss:.2f}")
+    return image
+```
+
+마지막으로 딥드림 알고리즘의 바깥쪽 루프이다. 이미지를 처리하기 위해 옥타브라고 부르는 스케일의 리스트를 정의한다. 3개의 다른 옥타브로 이미지를 처리할 것이다. 가장 작은 값에서 가장 큰 값까지 각 옥타브에서 `gradient_ascent_loop()`로 경사 상승법 단계를 30번 실행하여 앞서 정의한 손실을 최대화한다. 각 옥타브 사이에는 이미지가 40% 커진다. 작은 이미지로 시작하여 점점 크기를 키우자.
+
+다음 코드에서 이 과정에 필요한 파라미터를 정의한다. 이런 파라미터를 바꾸면 새로운 효과를 낼 수 있다.
+
+```
+# parameters
+step = 20.          # 경사 상승법 단계 크기
+num_octave = 3      # 경사 상승법을 실행할 스케일 횟수
+octave_scale = 1.4  # 연속적인 스케일 사이의 크기 비율
+iterations = 30     # 스케일 단계마다 수행할 경사 상승법 단계 횟수
+max_loss = 15.      # 이보다 손실이 커지면 현재 스케일에서 경사 상승법 과정을 중지한다.
+```
+
+이미지를 로드하고 저장하는 유틸리티 함수도 구현한다.
+
+**코드 12-14. 이미지 처리 유틸리티**
+```
+import numpy as np
+
+# 이미지를 로드하고 크기를 바꾸어 적절한 배열로 변환하는 유틸리티 함수
+def preprocess_image(image_path):
+    img = keras.utils.load_img(image_path)
+    img = keras.utils.img_to_array(img)
+    img = np.expand_dims(img, axis=0)
+    img = keras.applications.inception_v3.preprocess_input(img)
+    return img
+
+# 넘파이 배열을 이미지로 변환하는 유틸리티 함수
+def deprocess_image(img):
+    img = img.reshape((img.shape[1], img.shape[2], 3))
+    # InceptionV3 전처리 복원하기
+    img += 1.0
+    img *= 127.5
+    img = np.clip(img, 0, 255).astype("uint8")  # uint8로 바꾸고 [0, 255] 범위로 클리핑한다.
+    return img
+```
+
+다음은 바깥쪽 루프이다. 스케일을 연속적으로 증가시키면서 점점 뭉개지거나 픽셀 경계가 나타나므로 이미지 디테일을 많이 잃지 않도록 간단한 기교를 사용할 수 있다. 스케일을 늘린 후 이미지에 손실된 디테일을 재주입한다. 이는 원본 이미지가 크기를 늘렸을 때 어땠는지 알기 때문에 가능한 기법이다. 작은 이미지 크기 S와 큰 이미지 크기 L이 주어지면 크기 L로 변경된 원본 이미지와 크기 S로 변경된 원본 이미지 사이의 차이를 계산한다. 이 차이가 S에서 L로 변경되었을 때 잃어버린 디테일이다.
+
+**코드 12-15. 연속적인 여러 개의 '옥타브'에 걸쳐 경사 상승법 실행하기**
+```
+original_img = preprocess_image(base_image_path)
+original_shape = original_img.shape[1:3]
+
+# 여러 옥타브에서 이미지 크기를 계산한다.
+successive_shapes = [original_shape]
+for i in range(1, num_octave):
+    shape = tuple([int(dim / (octave_scale ** i)) for dim in original_shape])
+    successive_shapes.append(shape)
+successive_shapes = successive_shapes[::-1]
+
+shrunk_original_img = tf.image.resize(original_img, successive_shapes[0])
+
+img = tf.identity(original_img)                 # 이미지를 하드 카피한다.
+for i, shape in enumerate(successive_shapes):   # 여러 옥타브에 대해 반복한다.
+    print(f"{shape} 크기의 {i}번째 옥타브 처리")
+    img = tf.image.resize(img, shape)           # 딥드림 이미지의 스케일을 높인다.
+    img = gradient_ascent_loop(
+        img, iterations=iterations, learning_rate=step, max_loss=max_loss,
+    )
+    # 작은 버전의 원본 이미지의 스케일을 높인다. 픽셀 경계가 보일 것이다.
+    upscaled_shrunk_original_img = tf.image.resize(shrunk_original_img, shape)
+    # 이 크기에 해당하는 고해상도 버전의 원본 이미지를 계산한다.
+    same_size_original = tf.image.resize(original_img, shape)
+    # 두 이미지의 차이가 스케일을 높였을 때 손실된 디테일이다.
+    lost_detail = same_size_original - upscaled_shrunk_original_img
+    # 손실된 디테일을 딥드림 이미지에 다시 주입한다.
+    img += lost_detail
+    shrunk_original_img = tf.image.resize(original_img, shape)
+
+keras.utils.save_img("dream.png", deprocess_image(img.numpy()))
+```
+
+![예제 이미지에서 딥드림 코드 실행 결과](../Codes/dream.png)
+
+### 12.2.2 정리
+
+- 딥드림은 네트워크가 학습한 표현을 기반으로 컨브넷을 거꾸로 실행하여 입력 이미지를 생성한다.
+- 재미있는 결과가 만들어지고, 때로는 환각제 때문에 시야가 몽롱해진 사람이 만든 이미지 같기도 하다.
+- 이 과정은 이미지 모델이나 컨브넷에 국한되지 않는다. 음성, 음악 등에도 적용될 수 있다.
