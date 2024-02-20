@@ -418,3 +418,241 @@ keras.utils.save_img("dream.png", deprocess_image(img.numpy()))
 - 딥드림은 네트워크가 학습한 표현을 기반으로 컨브넷을 거꾸로 실행하여 입력 이미지를 생성한다.
 - 재미있는 결과가 만들어지고, 때로는 환각제 때문에 시야가 몽롱해진 사람이 만든 이미지 같기도 하다.
 - 이 과정은 이미지 모델이나 컨브넷에 국한되지 않는다. 음성, 음악 등에도 적용될 수 있다.
+
+
+
+## 12.3 뉴럴 스타일 트랜스퍼
+
+딥드림 이외에 딥러닝을 사용하여 이미지를 변경하는 또 다른 주요 분야는 **뉴럴 스타일 트랜스퍼**(neural style transfer)이다. 이는 타깃 이미지의 콘텐츠를 보존하면서 참조 이미지의 스타일을 타깃 이미지에 적용한다.
+
+여기서 스타일은 질감, 색깔, 이미지에 있는 다양한 크기의 시각 요소를 의미한다. 콘텐츠는 이미지에 있는 고수준의 대형 구조를 말한다. 
+
+스타일 트랜스퍼 구현 이면에 있는 핵심 개념은 모든 딥러닝 알고리즘의 핵심과 동일하다. 목표를 표현한 손실 함수를 정의하고 이 손실을 최소화한다. 이 동안 참조 이미지의 스타일을 적용하면서 원본 이미지의 콘텐츠를 보존한다. 콘텐츠와 스타일을 수학적으로 정의할 수 있다면 최소화할 손실 함수는 다음과 같을 것이다.
+
+```
+loss = distance(style(reference_image) - style(combination_image)) +
+       distance(content(original_image) - content(combination_image))
+```
+
+여기서 `distance`는 L2 같은 노름 함수이다. `content` 함수는 이미지의 콘텐츠 표현을 계산하고, `style` 함수는 이미지의 스타일 표현을 계산한다. 손실을 최소화하면 이미지의 스타일은 참조 이미지에 가까워지고, 콘텐츠는 원본 이미지에 가까워질 것이다.
+
+심층 합성곱 신경망을 사용하여 `style`과 `content` 함수를 수학적으로 정의할 수 있음은 2015년 여름 리온 게티스 등이 증명하였다.
+
+### 12.3.1 콘텐츠 손실
+
+네트워크의 하위 층 활성화는 이미지에 관한 국부적인 정보를 담고 있고, 상위 층의 활성화일수록 점점 전역적이고 추상적인 정보를 담게 된다. 다른 방식으로 생각하면 컨브넷 층의 활성화는 이미지를 다른 크기의 콘텐츠로 분해한다. 즉, 컨브넷 상위 층의 표현을 사용하면 전역적이고 추상적인 이미지 콘텐츠를 찾을 수 있을 것이다.
+
+타깃 이미지와 생성된 이미지를 사전 훈련된 컨브넷에 주입하여 상위 층의 활성화를 계산한다. 이 두 값 사이의 L2 노름이 콘텐츠 손실로 사용하기 좋다. 상위 층에서 보았을 때의 생성된 이미지, 원본 타깃 이미지를 서로 비슷하게 만들 것이다. 컨브넷의 상위 층에서 보는 것이 입력 이미지의 콘텐츠라고 가정하면 이미지의 콘텐츠를 보존하는 방법으로 사용할 수 있다.
+
+콘텐츠 손실은 하나의 상위 층만 사용한다.
+
+### 12.3.2 스타일 손실
+
+게티스 등이 정의한 스타일 손실은 컨브넷의 여러 층을 사용한다. 하나의 스타일이 아니라 참조 이미지에서 컨브넷이 추출한 모든 크기의 스타일을 잡아야 한다. 게티스 등은 층의 활성화 출력의 **그람 행렬**(Gram matrix)을 스타일 손실로 사용했다. 이는 층의 특성 맵들의 내적(inner product)이다. 내적은 층의 특성 사이에 있는 상관관계를 표현한다고 이해할 수 있다. 이런 특성의 상관관계는 특정 크기의 공간적인 패턴 통계를 잡아낸다. 경험적으로 보았을 때 층에서 찾은 텍스처에 대응된다.
+
+스타일 참조 이미지와 생성된 이미지로 층의 활성화를 계산한다. 스타일 손실은 그 안에 내재된 상관관계를 비슷하게 보존하는 것이 목적이다. 결과적으로 스타일 참조 이미지와 생성된 이미지에서 여러 크기의 텍스처가 비슷하게 보이도록 만든다.
+
+요약하면 사전 훈련된 컨브넷을 사용하여 다음 손실들을 정의할 수 있다.
+
+- 콘텐츠를 보존하기 위해 원본 이미지와 생성된 이미지 사이에서 상위 층의 활성화를 비슷하게 유지한다. 이 컨브넷은 원본 이미지와 생성된 이미지에서 동일한 것을 보아야 한다.
+- 스타일을 보존하기 위해 저수준 층과 고수준 층에서 활성화 안에 상관관계를 비슷하게 유지한다. 특성의 상관관계는 텍스처를 나타낸다. 따라서 생성된 이미지와 스타일 참조 이미지는 여러 크기의 텍스처를 공유할 것이다.
+
+### 12.3.3 케라스로 뉴럴 스타일 트랜스퍼 구현하기
+
+뉴럴 스타일 트랜스퍼는 사전 훈련된 컨브넷 중 어떤 것을 사용해서도 구현할 수 있다. 여기서는 게티스 등이 사용한 `VGG19` 네트워크를 사용한다.
+
+일반적인 과정은 다음과 같다.
+
+1. 스타일 참조 이미지, 베이스 이미지(base image), 생성된 이미지를 위해 VGG19 층의 활성화를 동시에 계산하는 네트워크를 설정한다.
+2. 세 이미지에서 계산한 층 활성화를 사용하여 앞서 설명한 손실 함수를 정의한다. 이 손실을 최소화하여 스타일 트랜스퍼를 구현할 것이다.
+3. 손실 함수를 최소화할 경사 하강법 과정을 설정한다.
+
+스타일 참조 이미지와 베이스 이미지의 경로를 정의하는 것부터 시작한다.
+
+**코드 12-16. 스타일 이미지와 콘텐츠 이미지 준비하기**
+```
+from tensorflow import keras
+
+base_image_path = keras.utils.get_file(
+    "sf.jpg",
+    origin="https://img-datasets.s3.amazonaws.com/sf.jpg",
+)
+style_reference_image_path = keras.utils.get_file(
+    "starry_night.jpg",
+    origin="https://img-datasets.s3.amazonaws.com/starry_night.jpg",
+)
+
+original_width, original_height = keras.utils.load_img(base_image_path).size
+img_height=400
+img_width=round(original_width * img_height / original_height)
+```
+
+![콘텐츠 이미지](image-97.png)
+
+![스타일 이미지](image-98.png)
+
+또한 컨브넷에 입출력할 이미지의 로드, 전처리, 사후 처리를 위한 유틸리티 함수도 정의한다.
+
+**코드 12-17. 유틸리티 함수**
+```
+import numpy as np
+
+def preprocess_image(image_path):
+    img = keras.utils.load_img(image_path, target_size=(img_height, img_width))
+    img = keras.utils.img_to_array(img)
+    img = np.expand_dims(img, axis=0)
+    img = keras.applications.vgg19.preprocess_input(img)
+    return img
+
+def deprocess_image(img):
+    img = img.reshape((img_height, img_width, 3))
+    # ImageNet의 평균 픽셀 값을 더한다. 이는 vgg19.preprocess_input 함수에서 수행한 변환을 복원한다.
+    img[:, :, 0] += 103.939
+    img[:, :, 1] += 116.779
+    img[:, :, 2] += 123.68
+    # 이미지를 BGR에서 RGB로 변경한다. 이는 vgg19.preprocess_input 함수에서 수행한 변환을 복원한다.
+    img = img[:, :, ::-1]
+    img = np.clip(img, 0, 255).astype("uint8")
+    return img    
+```
+
+VGG19 네트워크를 준비하고 사전 훈련된 컨브넷을 사용하여 중간 층의 활성화를 반환하는 특성 추출 모델을 만든다.
+
+**코드 12-18. 사전 훈련된 VGG19 모델을 사용해서 특성 추출기 만들기**
+```
+model = keras.applications.vgg19.VGG19(weights="imagenet", include_top=False)
+outputs_dict = dict([(layer.name, layer.output) for layer in model.layers])
+# 이 모델은 모든 타깃 층의 활성화 값을 하나의 딕셔너리로 반환한다.
+feature_extractor = keras.Model(inputs=model.inputs, outputs=outputs_dict)
+```
+
+다음으로 콘텐츠 손실을 정의한다.
+
+**코드 12-19. 콘텐츠 손실**
+```
+def content_loss(base_img, combination_img):
+    return tf.reduce_sum(tf.square(combination_img - base_img))
+```
+
+다음은 스타일 손실을 정의한다. 유틸리티 함수를 사용하여 입력 행렬의 그람 행렬을 계산한다. 이 행렬은 원본 특성 행렬의 상관관계를 기록한 행렬이다.
+
+**코드 12-20. 스타일 손실**
+```
+def gram_matrix(x):
+    x = tf.transpose(x, (2, 0, 1))
+    features = tf.reshape(x, (tf.shape(x)[0], -1))
+    gram = tf.matmul(features, tf.transpose(features))
+    return gram
+
+def style_loss(style_img, combination_img):
+    S = gram_matrix(style_img)
+    C = gram_matrix(combination_img)
+    channels = 3
+    size = img_height * img_width
+    return tf.reduce_sum(tf.square(S - C)) / (4.0 * (channels ** 2) * (size ** 2))
+```
+
+두 손실에 생성된 이미지의 픽셀을 사용하여 계산하는 **총 변위 손실**(total variation loss)를 추가한다. 이는 생성된 이미지가 공간적인 연속성을 가지도록 도와주며 픽셀의 격자 무늬가 과도하게 나타나는 것을 막아준다. 일종의 규제 항으로 해석할 수 있다.
+
+**코드 12-21. 총 변위 손실**
+```
+def total_variation_loss(x):
+    a = tf.square(
+        x[:, :img_height-1, :img_width-1, :] - x[:, 1:, :img_width-1, :]
+    )
+    b = tf.square(
+        x[:, :img_height-1, :img_width-1, :] - x[:, :img_height-1, 1:, :]
+    )
+    return tf.reduce_sum(tf.pow(a + b, 1.25))
+```
+
+최소화할 손실은 이 세 손실의 가중치 평균이다. 콘텐츠 손실은 `block5_conv2` 층 하나만 사용해서 계산한다. 스타일 손실을 계산하기 위해서는 하위 층과 상위 층에 걸쳐 여러 층을 사용한다. 그리고 마지막 층에 총 변위 손실을 추가한다.
+
+사용하는 스타일 참조 이미지와 콘텐츠 이미지에 따라 `content_weight` 계수를 조정하는 것이 좋다. `content_weight`가 높으면 생성된 이미지에 타깃 콘텐츠가 더 많이 나타나게 된다.
+
+**코드 12-22. 최소화할 최종 손실 정의하기**
+```
+style_layer_names = [                   # 스타일 손실에 사용할 층
+    "block1_conv1",
+    "block2_conv1",
+    "block3_conv1",
+    "block4_conv1",
+    "block5_conv1",
+]
+content_layer_name = "block5_conv2"     # 콘텐츠 손실에 사용할 층
+total_variation_weight = 1e-6           # 총 변이 손실의 기여 가중치
+style_weight = 1e-6                     # 스타일 손실의 기여 가중치
+content_weight = 2.5e-8                 # 콘텐츠 손실의 기여 가중치
+
+def compute_loss(combination_image, base_image, style_reference_image):
+    input_tensor = tf.concat(
+        [base_image, style_reference_image, combination_image],
+        axis=0,
+    )
+    features = feature_extractor(input_tensor)
+    loss = tf.zeros(shape=())
+    layer_features = features[content_layer_name]
+    base_image_features = layer_features[0, :, :, :]
+    combination_features = layer_features[2, :, :, :]
+    loss += content_weight * content_loss(
+        base_image_features, combination_features,
+    )
+    for layer_name in style_layer_names:
+        layer_features = features[layer_name]
+        style_reference_features = layer_features[1, :, :, :]
+        combination_features = layer_features[2, :, :, :]
+        style_loss_value = style_loss(
+            style_reference_features, combination_features,
+        )
+        loss += (style_weight / len(style_layer_names)) * style_loss_value
+    loss += total_variation_weight * total_variation_loss(combination_image)
+    return loss
+```
+
+마지막으로 경사 하강법 단계를 설정한다. 게티스의 논문에서는 L-BFGS 알고리즘이 최적화를 수행했지만 텐서플로에는 이 알고리즘이 없기 때문에 SGD 옵티마이저로 미니 배치 경사 하강법을 수행한다. 여기에서 학습률 스케줄(learning rate schedule)이라는 옵티마이저 기능을 활용할 것이다. 이를 사용하여 매우 높은 값에서 최종적으로 아주 낮은 값까지 점진적으로 학습률을 줄인다. 이렇게 하면 훈련 초기에는 빠른 속도로 진행되며 최소 손실에 가까울수록 점점 더 조심스럽게 훈련이 진행된다.
+
+**코드 12-23. 경사 하강법 단계 설정하기**
+```
+import tensorflow as tf
+
+@tf.function
+def compute_loss_and_grads(combination_image, base_image, style_reference_image):
+    with tf.GradientTape() as tape:
+        loss = compute_loss(combination_image, base_image, style_reference_image)
+    grads = tape.gradient(loss, combination_image)
+    return loss, grads
+
+optimizer = keras.optimizers.SGD(
+    keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate=100.0, decay_steps=100, decay_rate=0.96,
+    )
+)
+
+base_image = preprocess_image(base_image_path)
+style_reference_image = preprocess_image(style_reference_image_path)
+# 훈련하는 동안 합성된 이미지를 업데이트하기 때문에 Variable에 저장한다.
+combination_image = tf.Variable(preprocess_image(base_image_path))
+iterations = 4000
+
+for i in range(1, iterations + 1):
+    loss, grads = compute_loss_and_grads(
+        combination_image, base_image, style_reference_image,
+    )
+    # 스타일 트랜스퍼 손실이 감소되는 방향으로 합성 이미지를 업데이트한다.
+    optimizer.apply_gradients([(grads, combination_image)])
+    if i % 100 == 0:
+        print(f"{i}번째 반복: loss={loss:.2f}")
+        img = deprocess_image(combination_image.numpy())
+        fname = f"style_transfer/combination_image_at_iteration_{i}.png"
+        keras.utils.save_img(fname, img)
+```
+
+스타일 트랜스퍼 알고리즘은 느리지만 간단한 변환을 수행하기 때문에 작고 빠른 컨브넷을 사용하여 학습할 수 있다. 물론 이때 적절한 양의 훈련 데이터가 있어야 한다. 먼저 고정된 스타일 참조 이미지에 대해 여기에서 소개된 방법으로 입력-출력 샘플을 많이 생성한다. 그 다음 이 스타일 변환을 학습하는 간단한 컨브넷을 훈련하면 스타일 트랜스퍼를 빠르게 수행할 수 있다. 이런 모델을 만들면 어떤 이미지가 주어졌을 때 순식간에 스타일을 바꿀 수 있다. 그냥 이 작은 컨브넷을 통과시키기만 하면 된다.
+
+### 12.3.4 정리
+
+- 스타일 트랜스퍼는 참조 이미지의 스타일을 적용하면서 타깃 이미지의 콘텐츠를 보존하여 새로운 이미지를 만드는 방법이다.
+- 콘텐츠는 컨브넷 상위 층의 활성화에서 얻을 수 있다.
+- 스타일은 여러 컨브넷 층의 활성화 안에 내재된 상관관계에서 얻을 수 있다.
+- 딥러닝에서는 사전 훈련된 컨브넷으로 손실을 정의하고 이 손실을 최적화하는 과정으로 스타일 트랜스퍼를 구성할 수 있다.
+- 이런 기본 아이디어에서 출발하여 다양한 변종과 개선이 가능하다.
