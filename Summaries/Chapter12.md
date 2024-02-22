@@ -656,3 +656,821 @@ for i in range(1, iterations + 1):
 - 스타일은 여러 컨브넷 층의 활성화 안에 내재된 상관관계에서 얻을 수 있다.
 - 딥러닝에서는 사전 훈련된 컨브넷으로 손실을 정의하고 이 손실을 최적화하는 과정으로 스타일 트랜스퍼를 구성할 수 있다.
 - 이런 기본 아이디어에서 출발하여 다양한 변종과 개선이 가능하다.
+
+
+
+## 12.4 변이형 오토인코더를 사용한 이미지 생성
+
+창조적인 AI는 잠재 시각 공간(latent visual space)을 학습하고 이 공간에서 샘플링하여 실제 사진에서 보간된 완전히 새로운 이미지를 만든다.
+
+이미지 생성 분야의 주요 기법은 **변이형 오토인코더**(Variational AutoEncoders, VAE)와 **생성적 적대 신경망**(Generative Adversarial Networks, GAN)이 있다. GAN, VAE는 소리, 음악 또는 텍스트의 잠재 공간도 만들 수 있다.
+
+### 12.4.1 이미지의 잠재 공간에서 샘플링하기
+
+이미지 생성의 핵심 아이디어는 각 포인트가 실제와 같은 이미지로 매핑될 수 있는 저차원 잠재 공간의 표현을 만드는 것이다. 잠재 공간의 한 포인트를 입력으로 받아 이미지를 출력하는 모듈을 GAN에서는 **생성자**(generator), VAE에서는 **디코더**(decoder)라고 부른다. 잠재 공간을 학습하면 여기에서 포인트 하나를 샘플링할 수 있다. 그 다음 이미지 공간으로 매핑하여 이전에 본 적 없는 이미지를 생성한다. 이런 새로운 이미지는 훈련 데이터 사이에 위치한다.
+
+VAE는 구조적인 잠재 공간을 학습하는 데 뛰어나다. 이 공간에서 특정 방향은 데이터에서 의미 있는 변화의 방향을 인코딩한다. GAN은 매우 실제 같은 이미지를 만든다. 여기에서 만든 잠재 공간은 구조적이거나 연속성이 없을 수 있다.
+
+### 12.4.2 이미지 변형을 위한 개념 벡터
+
+단어 임베딩에서의 **개념 벡터**(concept vector) 아이디어와 동일하다. 잠재 공간이나 임베딩 공간이 주어지면 이 공간의 어떤 방향은 원본 데이터의 흥미로운 변화를 인코딩한 축일 수 있다. 예를 들어 얼굴 이미지에 대한 잠재 공간에 웃음 벡터가 있을 수 있다. 잠재 공간의 z 포인트가 어떤 얼굴의 임베딩된 표현이라면 잠재 공간의 z + s 포인트는 같은 얼굴이 웃고 있는 표현을 임베딩한 것이다.
+
+### 12.4.3 변이형 오토인코더
+
+변이형 오토인코더는 생성 모델의 한 종류로 개념 벡터를 사용하여 이미지를 변형하는 데 아주 적절하다. 입력을 저차원 잠재 공간으로 인코딩한 후 디코딩하여 복원하는 네트워크이다. 변이형 오토인코더는 딥러닝과 베이즈 추론(Bayesian inference)의 아이디어를 혼합한 오토인코더의 최신 버전이다.
+
+고전적인 오토인코더는 이미지를 입력받아 인코더 모듈을 사용하여 잠재 벡터 공간으로 매핑한다. 그 다음 디코더 모듈을 사용해서 원본 이미지와 동일한 차원으로 복원하여 출력한다. 오토인코더는 입력 이미지와 동일한 이미지를 타깃 데이터로 사용하여 훈련한다. 다시 말해 오토인코더는 원본 입력을 재구성하는 방법을 학습하는 것이다. 코딩(coding, 인코더의 출력)에 여러 제약을 가하면 오토인코더가 더 흥미로운 또는 덜 흥미로운 잠재 공간의 표현을 학습한다. 일반적으로 코딩이 저차원이고 희소성을 갖도록 제약을 가한다. 이런 경우 인코더는 입력 데이터와 정보를 적은 수의 비트에 압축하기 위해 노력한다.
+
+현실적으로 고전적인 오토인코더는 특별히 유용하거나 구조화가 잘된 잠재 공간을 만들지 못한다. 따라서 VAE는 오토인코더에 약간의 통계 기법을 추가하여 연속적이고 구조적인 잠재 공간을 학습하도록 만들었다. 그리 하여 이미지 생성을 위한 강력한 도구로 탈바꿈되었다.
+
+VAE는 입력 이미지를 어떤 통계 분포의 파라미터로 변환한다. 이는 입력 이미지가 통계적 과정을 통해 생성되었다고 가정하여 인코딩과 디코딩하는 동안 무작위성이 필요하다는 것을 의미한다. VAE는 평균과 분산 파라미터를 사용하여 이 분포에서 무작위로 하나의 샘플을 추출한다. 그리고 이 샘플을 디코딩하여 원본 입력으로 복원한다. 이런 무작위한 과정은 안정성을 향상하고 잠재 공간 어디서든 의미 있는 표현을 인코딩하도록 만든다. 즉, 잠재 공간에서 샘플링한 모든 포인트는 유효한 출력으로 디코딩된다.
+
+기술적으로 VAE는 다음과 같이 작동한다.
+
+1. 인코더 모듈이 입력 샘플 `input_img`를 잠재 공간의 두 파라미터 `z_mean`과 `z_log_var`로 변환한다.
+2. 입력 이미지가 생성되었다고 가정한 잠재 공간의 정규 분포에서 포인트 `z`를 `z = z_mean + exp(0.5 * z_log_var) * epsilon`처럼 무작위로 샘플링한다. `epsilon`은 작은 값을 가진 랜덤 텐서이다.
+3. 디코더 모듈은 잠재 공간의 이 포인트를 원본 입력 이미지로 매핑하여 복원한다.
+
+`epsilon`이 무작위로 만들어지기 때문에 `input_img`를 인코딩한 잠재 공간의 위치(`z_mean`)에 가까운 포인트는 `input_img`와 비슷한 이미지로 디코딩될 것이다. 이는 잠재 공간을 연속적이고 의미 있는 공간으로 만들어 준다. 잠재 공간에서 가까운 2개의 포인트는 아주 비슷한 이미지로 디코딩될 것이다. 잠재 공간의 이런 저차원 연속성은 잠재 공간에서 모든 방향이 의미 있는 데이터 변화의 축을 인코딩하도록 만든다. 결국 잠재 공간은 매우 구조적이고 개념 벡터로 다루기에 적합해진다.
+
+VAE의 파라미터는 2개의 손실 함수로 훈련한다. 디코딩된 샘플이 원본 입력과 동일하도록 만드는 **재구성 손실**(reconstruction loss)과 잠재 공간을 잘 형성하고 훈련 데이터에 과대적합을 줄이는 **규제 손실**(regularization loss)이다. 개략적으로 보면 다음과 같다.
+
+```
+z_mean, z_log_var = encoder(input_img)
+z = z_mean + exp(0.5 * z_log_var) * epsilon
+reconstructed_img = decoder(z)
+model = Model(input_img, reconstructed_img)
+```
+
+그 다음 재구성 손실과 규제 손실을 사용해서 모델을 훈련할 수 있다. 규제 손실로는 일반적으로 인코더 출력의 분포를 0을 중심으로 균형 잡힌 정규 분포로 이동시키는 식(쿨백-라이블러 발산(Kullback-Leibler divergence))을 사용한다. 이는 인코더가 모델링하는 잠재 공간의 구조에 대한 합리적인 가정을 제공한다.
+
+### 12.4.4 케라스로 VAE 구현하기
+
+MNIST 숫자를 생성할 수 있는 VAE를 구현한다. 이 모델을 세 부분으로 구성된다.
+
+- 인코더 네트워크는 실제 이미지를 잠재 공간의 평균과 분산으로 변환한다.
+- 샘플링 층은 이런 평균과 분산을 받아 잠재 공간에서 랜덤한 포인트를 샘플링한다.
+- 디코더 네트워크는 잠재 공간의 포인트를 이미지로 변환한다.
+
+**코드 12-24. VAE 인코더 네트워크**
+```
+from tensorflow import keras
+from tensorflow.keras import layers
+
+# 잠재 공간의 차원: 2D 평면
+latent_dim = 2
+
+encoder_inputs = keras.Input(shape=(28, 28, 1))
+x = layers.Conv2D(32, 3, activation="relu", strides=2, padding="same")(encoder_inputs)
+x = layers.Conv2D(64, 3, activation="relu", strides=2, padding="same")(x)
+x = layers.Flatten()(x)
+x = layers.Dense(16, activation="relu")(x)
+# 입력 이미지는 결국 2개의 파라미터로 인코딩된다.
+z_mean = layers.Dense(latent_dim, name="z_mean")(x)
+z_log_var = layers.Dense(latent_dim, name="z_log_var")(x)
+encoder = keras.Model(encoder_inputs, [z_mean, z_log_var], name="encoder")
+```
+
+```
+>>> encoder.summary()
+Model: "encoder"
+__________________________________________________________________________________________________
+ Layer (type)                Output Shape                 Param #   Connected to                  
+==================================================================================================
+ input_1 (InputLayer)        [(None, 28, 28, 1)]          0         []                            
+                                                                                                  
+ conv2d (Conv2D)             (None, 14, 14, 32)           320       ['input_1[0][0]']             
+                                                                                                  
+ conv2d_1 (Conv2D)           (None, 7, 7, 64)             18496     ['conv2d[0][0]']              
+                                                                                                  
+ flatten (Flatten)           (None, 3136)                 0         ['conv2d_1[0][0]']            
+                                                                                                  
+ dense (Dense)               (None, 16)                   50192     ['flatten[0][0]']             
+                                                                                                  
+ z_mean (Dense)              (None, 2)                    34        ['dense[0][0]']               
+                                                                                                  
+ z_log_var (Dense)           (None, 2)                    34        ['dense[0][0]']               
+                                                                                                  
+==================================================================================================
+Total params: 69076 (269.83 KB)
+Trainable params: 69076 (269.83 KB)
+Non-trainable params: 0 (0.00 Byte)
+__________________________________________________________________________________________________
+```
+
+위 코드는 이미지를 잠재 공간의 확률 분포 파라미터로 매핑하는 인코더 네트워크이다. 입력 이미지 `x`를 두 벡터 `z_mean`, `z_log_var`로 매핑하는 간단한 컨브넷이다. 한 가지 중요한 점은 최대 풀링 대신 스트라이드를 사용하여 특성 맵을 다운샘플링한 점인데, 일반적으로 **정보 위치**(information location)를 고려하는 모델의 경우 스트라이드가 최대 풀링보다 선호된다. 이미지에서 사물이 있는 위치를 알아야 하고, 유효한 이미지를 재구성하는 데 사용할 수 있는 이미지 인코딩을 만들어야 하기 때문에 스트라이드가 사용되었다.
+
+다음은 `z_mean`과 `z_log_var`를 사용하여 잠재 공간 포인트 `z`를 만드는 코드이다. 이 두 파라미터가 `input_img`를 생성한 통계 분포의 파라미터라고 가정한다.
+
+**코드 12-25. 잠재 공간 샘플링 층**
+```
+import tensorflow as tf
+
+class Sampler(layers.Layer):
+    def call(self, z_mean, z_log_var):
+        batch_size = tf.shape(z_mean)[0]
+        z_size = tf.shape(z_mean)[1]
+        epsilon = tf.random.normal(shape=(batch_size, z_size))
+        return z_mean + tf.exp(0.5 * z_log_var) * epsilon
+```
+
+다음으로는 디코더를 구현한다. 벡터 `z`를 이미지 차원으로 바꾸고 몇 개의 합성곱 층을 사용하여 최종 이미지 출력을 얻는다. 이 이미지의 차원은 원본 `input_img`와 같다.
+
+**코드 12-26. 잠재 공간 포인트를 이미지로 매핑하는 VAE 디코더 네트워크**
+```
+latent_inputs = keras.Input(shape=(latent_dim, ))
+x = layers.Dense(7 * 7 * 64, activation="relu")(latent_inputs)
+x = layers.Reshape((7, 7, 64))(x)
+x = layers.Conv2DTranspose(64, 3, activation="relu", strides=2, padding="same")(x)
+x = layers.Conv2DTranspose(32, 3, activation="relu", strides=2, padding="same")(x)
+decoder_outputs = layers.Conv2D(1, 3, activation="sigmoid", padding="same")(x)
+decoder = keras.Model(latent_inputs, decoder_outputs, name="decoder")
+```
+
+```
+>>> decoder.summary()
+100번째 반복: loss=8137.47
+200번째 반복: loss=6651.92
+---------------------------------------------------------------------------
+KeyboardInterrupt                         Traceback (most recent call last)
+Cell In[13], line 23
+     20 iterations = 4000
+     22 for i in range(1, iterations + 1):
+---> 23     loss, grads = compute_loss_and_grads(
+     24         combination_image, base_image, style_reference_image,
+     25     )
+     26     # 스타일 트랜스퍼 손실이 감소되는 방향으로 합성 이미지를 업데이트한다.
+     27     optimizer.apply_gradients([(grads, combination_image)])
+
+File ~/.local/lib/python3.10/site-packages/tensorflow/python/util/traceback_utils.py:150, in filter_traceback.<locals>.error_handler(*args, **kwargs)
+    148 filtered_tb = None
+    149 try:
+--> 150   return fn(*args, **kwargs)
+    151 except Exception as e:
+    152   filtered_tb = _process_traceback_frames(e.__traceback__)
+
+File ~/.local/lib/python3.10/site-packages/tensorflow/python/eager/polymorphic_function/polymorphic_function.py:832, in Function.__call__(self, *args, **kwds)
+    829 compiler = "xla" if self._jit_compile else "nonXla"
+    831 with OptionalXlaContext(self._jit_compile):
+--> 832   result = self._call(*args, **kwds)
+    834 new_tracing_count = self.experimental_get_tracing_count()
+    835 without_tracing = (tracing_count == new_tracing_count)
+...
+     54                                       inputs, attrs, num_outputs)
+     55 except core._NotOkStatusException as e:
+     56   if name is not None:
+
+KeyboardInterrupt: 
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+2024-02-22 18:25:26.048372: E external/local_xla/xla/stream_executor/cuda/cuda_driver.cc:274] failed call to cuInit: CUDA_ERROR_NO_DEVICE: no CUDA-capable device is detected
+Model: "encoder"
+__________________________________________________________________________________________________
+ Layer (type)                Output Shape                 Param #   Connected to                  
+==================================================================================================
+ input_1 (InputLayer)        [(None, 28, 28, 1)]          0         []                            
+                                                                                                  
+ conv2d (Conv2D)             (None, 14, 14, 32)           320       ['input_1[0][0]']             
+                                                                                                  
+ conv2d_1 (Conv2D)           (None, 7, 7, 64)             18496     ['conv2d[0][0]']              
+                                                                                                  
+ flatten (Flatten)           (None, 3136)                 0         ['conv2d_1[0][0]']            
+                                                                                                  
+ dense (Dense)               (None, 16)                   50192     ['flatten[0][0]']             
+                                                                                                  
+ z_mean (Dense)              (None, 2)                    34        ['dense[0][0]']               
+                                                                                                  
+ z_log_var (Dense)           (None, 2)                    34        ['dense[0][0]']               
+                                                                                                  
+==================================================================================================
+Total params: 69076 (269.83 KB)
+Trainable params: 69076 (269.83 KB)
+Non-trainable params: 0 (0.00 Byte)
+__________________________________________________________________________________________________
+Model: "decoder"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ input_2 (InputLayer)        [(None, 2)]               0         
+                                                                 
+ dense_1 (Dense)             (None, 3136)              9408      
+                                                                 
+ reshape (Reshape)           (None, 7, 7, 64)          0         
+                                                                 
+ conv2d_transpose (Conv2DTr  (None, 14, 14, 64)        36928     
+ anspose)                                                        
+                                                                 
+ conv2d_transpose_1 (Conv2D  (None, 28, 28, 32)        18464     
+ Transpose)                                                      
+                                                                 
+ conv2d_2 (Conv2D)           (None, 28, 28, 1)         289       
+                                                                 
+=================================================================
+Total params: 65089 (254.25 KB)
+Trainable params: 65089 (254.25 KB)
+Non-trainable params: 0 (0.00 Byte)
+_________________________________________________________________
+```
+
+이제 VAE 모델을 만든다. 이 모델은 지도 학습을 수행하지 않는다. 입력을 타깃으로 사용하는 **자기지도 학습**(self supervised learning)의 한 예이다. 일반적인 지도 학습이 아닌 경우 `Model` 워크플로를 상속하고 사용자 정의 `train_step()` 메소드를 구현하여 훈련 로직을 담는 것이 보통이다.
+
+**코드 12-27. 사용자 정의 train_step() 메소드를 사용하는 VAE 모델**
+```
+class VAE(keras.Model):
+    def __init__(self, encoder, decoder, **kwargs):
+        super().__init__(**kwargs)
+        self.encoder = encoder
+        self.decoder = decoder
+        self.sampler = Sampler()
+        self.total_loss_tracker = keras.metrics.Mean(name="total_loss")
+        self.reconstruction_loss_tracker = keras.metrics.Mean(name="reconstruction_loss")
+        self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
+        
+    @property
+    def metrics(self):
+        return [self.total_loss_tracker,
+                self.reconstruction_loss_tracker,
+                self.kl_loss_tracker]
+        
+    def train_step(self, data):
+        with tf.GradientTape() as tape:
+            z_mean, z_log_var = self.encoder(data)
+            z = self.sampler(z_mean, z_log_var)
+            reconstruction = decoder(z)
+            reconstruction_loss = tf.reduce_mean(
+                tf.reduce_sum(
+                    keras.losses.binary_crossentropy(data, reconstruction),
+                    axis=(1, 2)
+                )
+            )
+            kl_loss = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
+            total_loss = reconstruction_loss + tf.reduce_mean(kl_loss)
+        grads = tf.gradient(total_loss, self.trainable_weights)
+        self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
+        self.total_loss_tracker.update_state(total_loss)
+        self.reconstruction_loss_tracker.update_state(reconstruction_loss)
+        self.kl_loss_tracker.update_state(kl_loss)
+        return {
+            "total_loss": self.total_loss_tracker.result(),
+            "reconstruction_loss": self.reconstruction_loss_tracker.result(),
+            "kl_loss": self.kl_loss_tracker.result(),
+        }
+```
+
+이제 모델 객체를 만들고 MNIST 숫자에서 훈련한다. 사용자 정의 층에서 손실을 관리하기 때문에 `compile()` 메소드에 손실을 지정하지 않는다.(`loss=None`)이는 훈련할 때 타깃 데이터를 전달하지 않는다는 의미이다.
+
+**코드 12-28. VAE 훈련**
+```
+import numpy as np
+
+(x_train, _), (x_test, _) = keras.datasets.mnist.load_data()
+mnist_digits = np.concatenate([x_train, x_test], axis=0)
+mnist_digits = np.expand_dims(mnist_digits, -1).astype("float32") / 255
+
+vae = VAE(encoder, decoder)
+vae.compile(optimizer=keras.optimizers.Adam(), run_eagerly=True)
+vae.fit(mnist_digits, epochs=30, batch_size=128)
+```
+
+모델 훈련 이후에는 `decoder` 네트워크를 사용하여 임의의 잠재 공간 벡터를 이미지로 바꿀 수 있다.
+
+**코드 12-29. 2D 잠재 공간에서 이미지 그리드를 샘플링하기**
+```
+import matplotlib.pyplot as plt
+
+n = 30
+digit_size = 28
+figure = np.zeros((digit_size * n, digit_size * n))
+
+# 2D 그리드에서 선형적으로 포인트를 샘플링한다.
+grid_x = np.linspace(-1, 1, n)
+grid_y = np.linspace(-1, 1, n)[::-1]
+
+for i, yi in enumerate(grid_y):
+    for j, xi in enumerate(grid_x):
+        z_sample = np.array([[xi, yi]])
+        x_decoded = vae.decoder.predict(z_sample)
+        digit = x_decoded[0].reshape(digit_size, digit_size)
+        figure[
+            i * digit_size : (i + 1) * digit_size,
+            j * digit_size : (j + 1) * digit_size,
+        ] = digit
+        
+plt.figure(figsize=(15, 15))
+start_range = digit_size // 2
+end_range = n * digit_size + start_range
+pixel_range = np.arange(start_range, end_range, digit_size)
+sample_range_x = np.round(grid_x, 1)
+sample_range_y = np.round(grid_y, 1)
+
+plt.xticks(pixel_range, sample_range_x)
+plt.yticks(pixel_range, sample_range_y)
+plt.xlabel("z[0]")
+plt.ylabel("z[1]")
+plt.axis("off")
+plt.imshow(figure, cmap="Greys_r")
+```
+
+![잠재 공간에서 디코딩된 숫자 그리드](image-99.png)
+
+샘플링된 숫자의 그리드는 다른 숫자 클래스 사이에서 완벽하게 연속된 분포를 보여준다. 잠재 공간의 한 경로를 따라서 한 숫자가 다른 숫자로 자연스럽게 바뀐다. 이 공간의 특정 방향은 어떤 의미를 가진다. 예를 들어 5로 가는 방향, 1로 가는 방향 등이다.
+
+### 12.4.5 정리
+
+- 딥러닝으로 이미지 데이터셋에 대한 통계 정보를 담은 잠재 공간을 학습하여 이미지를 생성할 수 있다. 잠재 공간에서 포인트를 샘플링하고 디코딩하면 이전에 본 적 없는 이미지를 생성한다. 이를 수행하는 주요 방법은 VAE와 GAN이다.
+- VAE는 매우 구조적이고 연속적인 잠재 공간의 표현을 만든다. 이런 이유로 잠재 공간 안에서 일어나는 모든 종류의 이미지 변형 작업에 잘 맞는다. 다른 얼굴로 바꾸기, 찌푸린 얼굴을 웃는 얼굴로 변형하기 등이다. 잠재 공간을 가로질러 이미지가 변환하는 잠재 공간 기반의 애니메이션에도 잘 맞는다. 시작 이미지가 연속적으로 다른 이미지로 부드럽게 바뀌는 것을 볼 수 있다.
+- GAN은 실제 같은 단일 이미지를 생성할 수 있지만 구조적이고 연속적인 잠재 공간을 만들지 못한다.
+
+
+
+## 12.5 생성적 적대 신경망 소개
+
+**생성적 적대 신경망**(GAN)은 생성된 이미지가 실제 이미지와 통계적으로 거의 구분되지 않도록 강제하여 아주 실제 같은 합성 이미지를 생성한다.
+
+GAN을 직관적으로 이해하는 방법은 가짜 그림을 만드는 위조범을 생각하는 것이다. 위조범은 처음엔 형편없이 위조할 것이고 그림 판매상에게 원본과 함께 제시할 것이다. 그러면 판매상은 각 그림이 진짜인지 가짜인지 평가하여 피드백을 전달한다. 그러면 위조범은 시간이 지남에 따라 점점 더 원본을 모방하는 데 능숙해지고 결국 훌륭한 위조품을 만들어 낼 것이다.
+
+위조범 네트워크와 전문가 네트워크가 바로 GAN이다. 두 네트워크는 상대를 이기기 위해 훈련한다. GAN의 네트워크 2개는 다음과 같다.
+
+- **생성자 네트워크**(generator network): 랜덤 벡터(잠재 공간의 무작위한 포인트)를 입력으로 받아 이를 합성된 이미지로 디코딩한다.
+- **판별자 네트워크**(discriminator network)(**또는 적대 네트워크**(adversary network)): 이미지를 입력으로 받아 훈련 세트에서 온 이미지인지, 생성자 네트워크가 만든 이미지인지 판별한다.
+
+생성자 네트워크는 판별자 네트워크를 속이도록 훈련되고, 판별자 네트워크는 생성된 이미지가 실제인지 판별하는 기준을 높게 설정하면서 생성자의 능력 향상에 적응해 간다. 훈련이 끝나면 생성자는 입력 공간에 있는 어떤 포인트를 그럴듯한 이미지로 변환한다. VAE와 달리 이 잠재 공간은 의미 있는 구조를 보장하지 않는다. 특히 이 공간은 연속적이지 않다.
+
+GAN은 최적화의 최솟값이 고정되지 않은 시스템이다. 보통 경사 하강법은 고정된 손실 공간에서 언덕을 내려오는 방법이지만 GAN에서는 언덕을 내려오는 매 단계가 조금씩 전체 공간을 바꾼다. 즉, 최적화 과정이 최솟값을 찾는 것이 아니라 두 힘 간의 평형점을 찾는 다이나믹 시스템이다.
+
+### 12.5.1 GAN 구현 방법
+
+케라스에서 가장 기본적인 형태의 GAN인 심층 합성곱 GAN(DCGAN)을 만들어 보자. 이는 생성자와 판별자가 심층 컨브넷이다.
+
+20만 명의 유명 인사 얼굴 데이터로 구성된 CelebA(Large-scale CelebFaces Attributes) 데이터셋으로 GAN 모델을 훈련한다. 훈련 속도를 높이기 위해 이미지를 64X64 크기로 변경한다. 따라서 64X64 크기의 사람 얼굴을 생성하는 법을 학습할 것이다.
+
+GAN 구조는 다음과 같다.
+
+1. generator 네트워크는 (latent_dim, ) 크기의 벡터를 (64, 64, 3) 크기의 이미지로 매핑한다.
+2. discriminator 네트워크는 (64, 64, 3) 크기의 이미지가 진짜일 확률을 추정하여 이진 값으로 매핑한다.
+3. 생성자와 판별자를 연결하는 gan 네트워크를 만든다. gan(x) = discriminator(generator(x))이다. 이 gan 네트워크는 잠재 공간의 벡터를 판별자의 평가로 매핑한다. 즉, 판별자는 생성자가 잠재 공간의 벡터를 디코딩한 것이 얼마나 현실적인지 평가한다.
+4. "진짜"/"가짜" 레이블과 함께 진짜 이미지와 가짜 이미지 샘플을 사용하여 판별자를 훈련한다. 일반적인 이미지 분류 모델을 훈련하는 것과 동일하다.
+5. 생성자를 훈련하려면 gan 모델의 손실에 대한 생성자 가중치의 그레이디언트를 사용한다. 이 말은 매 단계마다 생성자에 의해 디코딩된 이미지를 판별자가 "진짜"로 분류하도록 만드는 방향으로 생성자의 가중치를 이동한다는 의미이다. 다른 말로 하면 판별자를 속이도록 생성자를 훈련한다.
+
+### 12.5.2 훈련 방법
+
+GAN을 훈련하고 튜닝하는 과정은 어렵기로 유명하다. 몇 가지 알려진 유용한 기법은 과학적이라기보단 경험을 통해 발견된 것이다.
+
+다음은 이 절에서 GAN 생성자와 판별자를 구현하는 데 사용할 몇 가지 기법이다.
+
+- VAE 디코더에서 했던 것처럼 판별자에서 특성 맵을 다운샘플링하는 데 풀링 대신 스트라이드를 사용한다.
+- 균등 분포가 아니고 정규 분포(가우스 분포)를 사용하여 잠재 공간에서 포인트를 샘플링한다.
+- 무작위성은 모델을 견고하게 만든다. GAN 훈련은 동적 평형을 만들기 때문에 여러 방식으로 갇힐 가능성이 높다. 훈련하는 동안 무작위성을 주입하면 이를 방지하는 데 도움이 된다. 이를 위해 판별자 레이블에 랜덤 노이즈를 추가한다.
+- 희소한 그레이디언트는 GAN 훈련을 방해할 수 있다. 딥러닝에서 희소성은 종종 바람직한 현상이지만 GAN에서는 그렇지 않다. 그레이디언트를 희소하게 만들 수 있는 것은 최대 풀링 연산과 relu 활성화 두 가지이다. 최대 풀링 대신 스트라이드 합성곱을 사용하여 다운샘플링을 하는 것이 좋다. 그리고 relu 활성화 대신 LeakyReLU 층을 사용하면 음수의 활성화 값을 조금 허용하기 때문에 희소성이 다소 완화된다.
+- 생성자에서 픽셀 공간을 균일하게 다루지 못하여 생성된 이미지에서 체스판 모양이 종종 나타난다. 이를 해결하기 위해 생성자와 판별자에서 Conv2DTranspose나 Conv2D를 사용할 때 스트라이드 크기로 나누어질 수 있는 커널 크기를 사용한다.
+
+### 12.5.3 CelebA 데이터셋 준비하기
+
+셀 명령으로 데이터셋을 내려받는다.
+
+**코드 12-30. CelebA 데이터 내려받기**
+```
+!mkdir celeba_gan
+!gdown 1up5bN8LCE2vHigVY-Z9yY2_aKRW5jN_9 -O celeba_gan/data.zip
+!unzip -qq celeba_gan/data.zip -d celeba_gan
+!rm -f celeba_gan/data.zip
+```
+
+디렉터리에 압축 해제된 이미지가 있다면 `image_dataset_from_directory` 함수를 사용하여 데이터셋을 만들 수 있다. 레이블이 필요하지 않고 이미지만 있으면 되므로 `label_mode=None`으로 지정한다.
+
+**코드 12-31. 이미지 디렉터리에 데이터셋을 만든다**
+```
+from tensorflow import keras
+
+dataset = keras.utils.image_dataset_from_directory(
+    "celeba_gan",
+    label_mode=None,
+    image_size=(64, 64),
+    batch_size=32,
+    smart_resize=True
+)
+```
+
+마지막으로 이미지 값을 [0, 1] 범위로 조정한다.
+
+**코드 12-32. 픽셀 값 범위 바꾸기**
+```
+dataset = dataset.map(lambda x: x / 255.)
+```
+
+다음 코드로 샘플 이미지를 출력할 수 있다.
+
+**코드 12-33. 첫 번째 이미지 출력하기**
+```
+import matplotlib.pyplot as plt
+
+for x in dataset:
+    plt.axis("off")
+    plt.imshow((x.numpy() * 255).astype("int32")[0])
+    break
+```
+
+### 12.5.4 판별자
+
+먼저 진짜와 합성 이미지의 후보 이미지를 입력으로 받고 두 클래스 중 하나로 분류하는 `discriminator` 모델을 만든다. GAN에서 발생하는 많은 문제 중 하나는 생성자가 노이즈 같은 이미지를 생성하는 데에서 멈추는 것이다. 판별자에 드롭아웃을 사용하는 것이 해결 방법이 될 수 있으므로 여기에서 이를 적용한다.
+
+**코드 12-34. GAN 판별자 네트워크**
+```
+from tensorflow.keras import layers
+
+discriminator = keras.Sequential([
+    keras.Input(shape=(64, 64, 3)),
+    layers.Conv2D(64, kernel_size=4, strides=2, padding="same"),
+    layers.LeakyReLU(alpha=0.2),
+    layers.Conv2D(128, kernel_size=4, strides=2, padding="same"),
+    layers.LeakyReLU(alpha=0.2),
+    layers.Conv2D(128, kernel_size=4, strides=2, padding="same"),
+    layers.LeakyReLU(alpha=0.2),
+    layers.Flatten(),
+    layers.Dropout(0.2),
+    layers.Dense(1, activation="sigmoid"),
+], name="discriminator")
+```
+
+```
+>>> discriminator.summary()
+Model: "discriminator"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ conv2d_9 (Conv2D)           (None, 32, 32, 64)        3136      
+                                                                 
+ leaky_re_lu_6 (LeakyReLU)   (None, 32, 32, 64)        0         
+                                                                 
+ conv2d_10 (Conv2D)          (None, 16, 16, 128)       131200    
+                                                                 
+ leaky_re_lu_7 (LeakyReLU)   (None, 16, 16, 128)       0         
+                                                                 
+ conv2d_11 (Conv2D)          (None, 8, 8, 128)         262272    
+                                                                 
+ leaky_re_lu_8 (LeakyReLU)   (None, 8, 8, 128)         0         
+                                                                 
+ flatten_3 (Flatten)         (None, 8192)              0         
+                                                                 
+ dropout_2 (Dropout)         (None, 8192)              0         
+                                                                 
+ dense_4 (Dense)             (None, 1)                 8193      
+                                                                 
+=================================================================
+Total params: 404801 (1.54 MB)
+Trainable params: 404801 (1.54 MB)
+Non-trainable params: 0 (0.00 Byte)
+_________________________________________________________________
+```
+
+### 12.5.5 생성자
+
+그 다음 훈련하는 동안 잠재 공간에서 무작위로 샘플링된 벡터를 후보 이미지로 변환하는 `generator` 모델을 만든다.
+
+**코드 12-35. GAN 생성자 네트워크**
+```
+latent_dim = 129
+
+generator = keras.Sequential([
+    keras.Input(shape=(latent_dim, )),
+    layers.Dense(8 * 8 * 128),
+    layers.Reshape((8, 8, 128)),
+    layers.Conv2DTranspose(128, kernel_size=4, strides=2, padding="same"),
+    layers.LeakyReLU(alpha=0.2),
+    layers.Conv2DTranspose(256, kernel_size=4, strides=2, padding="same"),
+    layers.LeakyReLU(alpha=0.2),
+    layers.Conv2DTranspose(512, kernel_size=4, strides=2, padding="same"),
+    layers.LeakyReLU(alpha=0.2),
+    layers.Conv2D(3, kernel_size=5, padding="same", activation="sigmoid"),
+], name="generator")
+```
+
+```
+>>> generator.summary()
+100번째 반복: loss=8137.47
+200번째 반복: loss=6651.92
+---------------------------------------------------------------------------
+KeyboardInterrupt                         Traceback (most recent call last)
+Cell In[13], line 23
+     20 iterations = 4000
+     22 for i in range(1, iterations + 1):
+---> 23     loss, grads = compute_loss_and_grads(
+     24         combination_image, base_image, style_reference_image,
+     25     )
+     26     # 스타일 트랜스퍼 손실이 감소되는 방향으로 합성 이미지를 업데이트한다.
+     27     optimizer.apply_gradients([(grads, combination_image)])
+
+File ~/.local/lib/python3.10/site-packages/tensorflow/python/util/traceback_utils.py:150, in filter_traceback.<locals>.error_handler(*args, **kwargs)
+    148 filtered_tb = None
+    149 try:
+--> 150   return fn(*args, **kwargs)
+    151 except Exception as e:
+    152   filtered_tb = _process_traceback_frames(e.__traceback__)
+
+File ~/.local/lib/python3.10/site-packages/tensorflow/python/eager/polymorphic_function/polymorphic_function.py:832, in Function.__call__(self, *args, **kwds)
+    829 compiler = "xla" if self._jit_compile else "nonXla"
+    831 with OptionalXlaContext(self._jit_compile):
+--> 832   result = self._call(*args, **kwds)
+    834 new_tracing_count = self.experimental_get_tracing_count()
+    835 without_tracing = (tracing_count == new_tracing_count)
+...
+     54                                       inputs, attrs, num_outputs)
+     55 except core._NotOkStatusException as e:
+     56   if name is not None:
+
+KeyboardInterrupt: 
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+2024-02-22 18:25:26.048372: E external/local_xla/xla/stream_executor/cuda/cuda_driver.cc:274] failed call to cuInit: CUDA_ERROR_NO_DEVICE: no CUDA-capable device is detected
+Model: "encoder"
+__________________________________________________________________________________________________
+ Layer (type)                Output Shape                 Param #   Connected to                  
+==================================================================================================
+ input_1 (InputLayer)        [(None, 28, 28, 1)]          0         []                            
+                                                                                                  
+ conv2d (Conv2D)             (None, 14, 14, 32)           320       ['input_1[0][0]']             
+                                                                                                  
+ conv2d_1 (Conv2D)           (None, 7, 7, 64)             18496     ['conv2d[0][0]']              
+                                                                                                  
+ flatten (Flatten)           (None, 3136)                 0         ['conv2d_1[0][0]']            
+                                                                                                  
+ dense (Dense)               (None, 16)                   50192     ['flatten[0][0]']             
+                                                                                                  
+ z_mean (Dense)              (None, 2)                    34        ['dense[0][0]']               
+                                                                                                  
+ z_log_var (Dense)           (None, 2)                    34        ['dense[0][0]']               
+                                                                                                  
+==================================================================================================
+Total params: 69076 (269.83 KB)
+Trainable params: 69076 (269.83 KB)
+Non-trainable params: 0 (0.00 Byte)
+__________________________________________________________________________________________________
+Model: "decoder"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ input_2 (InputLayer)        [(None, 2)]               0         
+                                                                 
+ dense_1 (Dense)             (None, 3136)              9408      
+                                                                 
+ reshape (Reshape)           (None, 7, 7, 64)          0         
+                                                                 
+ conv2d_transpose (Conv2DTr  (None, 14, 14, 64)        36928     
+ anspose)                                                        
+                                                                 
+ conv2d_transpose_1 (Conv2D  (None, 28, 28, 32)        18464     
+ Transpose)                                                      
+                                                                 
+ conv2d_2 (Conv2D)           (None, 28, 28, 1)         289       
+                                                                 
+=================================================================
+Total params: 65089 (254.25 KB)
+Trainable params: 65089 (254.25 KB)
+Non-trainable params: 0 (0.00 Byte)
+_________________________________________________________________
+Epoch 1/30
+547/547 [==============================] - 56s 102ms/step - total_loss: 212.8446 - reconstruction_loss: 210.7646 - kl_loss: 2.0800
+Epoch 2/30
+547/547 [==============================] - 64s 117ms/step - total_loss: 178.4835 - reconstruction_loss: 174.8801 - kl_loss: 3.6034
+Epoch 3/30
+547/547 [==============================] - 67s 122ms/step - total_loss: 163.3656 - reconstruction_loss: 159.5594 - kl_loss: 3.8062
+Epoch 4/30
+547/547 [==============================] - 63s 115ms/step - total_loss: 158.8396 - reconstruction_loss: 154.9918 - kl_loss: 3.8478
+Epoch 5/30
+547/547 [==============================] - 65s 118ms/step - total_loss: 156.5325 - reconstruction_loss: 152.6605 - kl_loss: 3.8720
+Epoch 6/30
+547/547 [==============================] - 60s 110ms/step - total_loss: 154.8626 - reconstruction_loss: 150.9779 - kl_loss: 3.8846
+Epoch 7/30
+547/547 [==============================] - 60s 110ms/step - total_loss: 153.7110 - reconstruction_loss: 149.8167 - kl_loss: 3.8943
+Epoch 8/30
+547/547 [==============================] - 56s 103ms/step - total_loss: 152.7579 - reconstruction_loss: 148.8843 - kl_loss: 3.8735
+Epoch 9/30
+547/547 [==============================] - 60s 110ms/step - total_loss: 152.0153 - reconstruction_loss: 148.1516 - kl_loss: 3.8638
+Epoch 10/30
+547/547 [==============================] - 55s 100ms/step - total_loss: 151.3495 - reconstruction_loss: 147.4727 - kl_loss: 3.8769
+Epoch 11/30
+547/547 [==============================] - 54s 99ms/step - total_loss: 150.7404 - reconstruction_loss: 146.8895 - kl_loss: 3.8510
+Epoch 12/30
+547/547 [==============================] - 56s 102ms/step - total_loss: 150.4219 - reconstruction_loss: 146.5689 - kl_loss: 3.8529
+Epoch 13/30
+...
+Epoch 29/30
+547/547 [==============================] - 62s 113ms/step - total_loss: 146.7954 - reconstruction_loss: 142.9897 - kl_loss: 3.8057
+Epoch 30/30
+547/547 [==============================] - 59s 108ms/step - total_loss: 146.6713 - reconstruction_loss: 142.8599 - kl_loss: 3.8115
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+<keras.src.callbacks.History at 0x7fbb6a2ead70>
+1/1 [==============================] - 0s 106ms/step
+1/1 [==============================] - 0s 23ms/step
+1/1 [==============================] - 0s 22ms/step
+1/1 [==============================] - 0s 18ms/step
+1/1 [==============================] - 0s 22ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 19ms/step
+1/1 [==============================] - 0s 21ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 18ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 20ms/step
+1/1 [==============================] - 0s 26ms/step
+1/1 [==============================] - 0s 18ms/step
+1/1 [==============================] - 0s 17ms/step
+1/1 [==============================] - 0s 18ms/step
+1/1 [==============================] - 0s 29ms/step
+1/1 [==============================] - 0s 17ms/step
+1/1 [==============================] - 0s 16ms/step
+1/1 [==============================] - 0s 15ms/step
+1/1 [==============================] - 0s 15ms/step
+1/1 [==============================] - 0s 15ms/step
+1/1 [==============================] - 0s 15ms/step
+1/1 [==============================] - 0s 16ms/step
+...
+1/1 [==============================] - 0s 17ms/step
+1/1 [==============================] - 0s 16ms/step
+1/1 [==============================] - 0s 16ms/step
+1/1 [==============================] - 0s 18ms/step
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+<matplotlib.image.AxesImage at 0x7fbb42d98280>
+
+Downloading...
+From (original): https://drive.google.com/uc?id=1up5bN8LCE2vHigVY-Z9yY2_aKRW5jN_9
+From (redirected): https://drive.google.com/uc?id=1up5bN8LCE2vHigVY-Z9yY2_aKRW5jN_9&confirm=t&uuid=e30eba09-0223-4cb6-add1-b238a9578d83
+To: /home/yushinkim/Study/ML_and_DL/Codes/celeba_gan/data.zip
+100%|██████████████████████████████████████| 1.44G/1.44G [02:47<00:00, 8.63MB/s]
+Found 202599 files belonging to 1 classes.
+
+Model: "discriminator"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ conv2d_9 (Conv2D)           (None, 32, 32, 64)        3136      
+                                                                 
+ leaky_re_lu_6 (LeakyReLU)   (None, 32, 32, 64)        0         
+                                                                 
+ conv2d_10 (Conv2D)          (None, 16, 16, 128)       131200    
+                                                                 
+ leaky_re_lu_7 (LeakyReLU)   (None, 16, 16, 128)       0         
+                                                                 
+ conv2d_11 (Conv2D)          (None, 8, 8, 128)         262272    
+                                                                 
+ leaky_re_lu_8 (LeakyReLU)   (None, 8, 8, 128)         0         
+                                                                 
+ flatten_3 (Flatten)         (None, 8192)              0         
+                                                                 
+ dropout_2 (Dropout)         (None, 8192)              0         
+                                                                 
+ dense_4 (Dense)             (None, 1)                 8193      
+                                                                 
+=================================================================
+Total params: 404801 (1.54 MB)
+Trainable params: 404801 (1.54 MB)
+Non-trainable params: 0 (0.00 Byte)
+_________________________________________________________________
+Model: "generator"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ dense_5 (Dense)             (None, 8192)              1064960   
+                                                                 
+ reshape_1 (Reshape)         (None, 8, 8, 128)         0         
+                                                                 
+ conv2d_transpose_2 (Conv2D  (None, 16, 16, 128)       262272    
+ Transpose)                                                      
+                                                                 
+ leaky_re_lu_9 (LeakyReLU)   (None, 16, 16, 128)       0         
+                                                                 
+ conv2d_transpose_3 (Conv2D  (None, 32, 32, 256)       524544    
+ Transpose)                                                      
+                                                                 
+ leaky_re_lu_10 (LeakyReLU)  (None, 32, 32, 256)       0         
+                                                                 
+ conv2d_transpose_4 (Conv2D  (None, 64, 64, 512)       2097664   
+ Transpose)                                                      
+                                                                 
+ leaky_re_lu_11 (LeakyReLU)  (None, 64, 64, 512)       0         
+                                                                 
+ conv2d_12 (Conv2D)          (None, 64, 64, 3)         38403     
+                                                                 
+=================================================================
+Total params: 3987843 (15.21 MB)
+Trainable params: 3987843 (15.21 MB)
+Non-trainable params: 0 (0.00 Byte)
+_________________________________________________________________
+```
+
+### 12.5.6 적대 네트워크
+
+마지막으로 생성자와 판별자를 연결하여 GAN을 구성한다. 훈련할 때 이 모델은 생성자가 판별자를 속이는 능력이 커지도록 학습시킨다. 이 모델은 잠재 공간의 포인트를 "진짜" 또는 "가짜"의 분류 결정으로 변환한다. 훈련에 사용되는 타깃 레이블은 항상 진짜 이미지이다. 따라서 `gan`을 훈련하는 것은 `discriminator`가 가짜 이미지를 보았을 때 진짜라고 예측하도록 만들기 위해 `generator`의 가중치를 업데이트하는 것이다.
+
+훈련 반복의 내용을 요약 정리하자면 매 반복마다 다음을 수행한다고 할 수 있다.
+
+1. 잠재 공간에서 무작위로 포인트를 뽑는다(랜덤 노이즈).
+2. 이 랜덤 노이즈를 사용하여 generator에서 이미지를 생성한다.
+3. 생성된 이미지와 진짜 이미지를 섞는다.
+4. 진짜와 가짜가 섞인 이미지와 이에 대응하는 타깃을 사용하여 discriminator를 훈련한다. 타깃은 "진짜" 또는 "가짜"이다.
+5. 잠재 공간에서 무작위로 새로운 포인트를 뽑는다.
+6. 이 랜덤 벡터를 사용하여 generator를 훈련한다. 모든 타깃은 "진짜"로 설정한다. 판별자가 생성된 이미지를 모두 "진짜 이미지"라고 예측하도록 생성자의 가중치를 업데이트한다. 결국 생성자는 판별자를 속이도록 훈련된다.
+
+VAE 예제와 동일하게 `Model` 클래스를 서브클래싱하고 사용자 정의 `train_step()` 메소드를 사용해 구현해 보자. 2개의 옵티마이저를 사용하므로 `compile()` 메소드를 오버라이드하여 2개의 옵티마이저를 받을 수 있도록 만들 것이다.
+
+**코드 12-36. GAN 모델**
+```
+import tensorflow as tf
+
+class GAN(keras.Model):
+    def __init__(self, discriminator, generator, latent_dim):
+        super().__init__()
+        self.discriminator = discriminator
+        self.generator = generator
+        self.latent_dim = latent_dim
+        self.d_loss_metric = keras.metrics.Mean(name="d_loss")
+        self.g_loss_metric = keras.metrics.Mean(name="g_loss")
+    
+    def compile(self, d_optimizer, g_optimizer, loss_fn):
+        super(GAN, self).compile()
+        self.d_optimizer = d_optimizer
+        self.g_optimizer = g_optimizer
+        self.loss_fn = loss_fn
+        
+    @property
+    def metrics(self):
+        return [self.d_loss_metric, self.g_loss_metric]
+    
+    def train_step(self, real_images):
+        batch_size = tf.shape(real_images)[0]
+        random_latent_vectors = tf.random.normal(shape=(batch_size, self.latent_dim))
+        generated_images = self.generator(random_latent_vectors)
+        combined_images = tf.concat([generated_images, real_images], axis=0)
+        labels = tf.concat([tf.ones((batch_size, 1)), tf.zeros((batch_size, 1))], axis=0)
+        labels += 0.05 * tf.random.uniform(tf.shape(labels))    # 레이블에 랜덤한 잡음을 추가한다: 중요한 트릭이다.
+        
+        # 판별자를 훈련한다.
+        with tf.GradientTape() as tape:
+            predictions = self.discriminator(combined_images)
+            d_loss = self.loss_fn(labels, predictions)
+        grads = tape.gradient(d_loss, self.discriminator.trainable_weights)
+        self.d_optimizer.apply_gradients(zip(grads, self.discriminator.trainable_weights))
+        # 잠재 공간에서 랜덤한 포인트를 샘플링한다.
+        random_latent_vectors = tf.random.normal(shape=(batch_size, self.latent_dim))
+        # 모두 진짜 이미지라고 말하는 레이블을 만든다.
+        misleading_labels = tf.zeros((batch_size, 1))
+        
+        with tf.GradientTape() as tape:
+            predictions = self.discriminator(self.generator(random_latent_vectors))
+            g_loss = self.loss_fn(misleading_labels, predictions)
+        grads = tape.gradient(g_loss, self.generator.trainable_weights)
+        
+        self.g_optimizer.apply_gradients(zip(grads, self.generator.trainable_weights))
+        self.d_loss_metric.update_state(d_loss)
+        self.g_loss_metric.update_state(g_loss)
+        return {
+            "d_loss": self.d_loss_metric.result(),
+            "g_loss": self.g_loss_metric.result(),
+        }
+```
+
+훈련을 시작하기 전 결과를 모니터링하기 위한 콜백을 만들어 보자. 생성자를 사용하여 에포크가 끝날 때마다 여러 개의 가짜 이미지를 만들어 저장한다.
+
+**코드 12-37. 훈련 과정 동안에 이미지를 생성하기 위한 콜백**
+```
+class GANMonitor(keras.callbacks.Callback):
+    def __init__(self, num_img=3, latent_dim=128):
+        self.num_img = num_img
+        self.latent_dim = latent_dim
+        
+    def on_epoch_end(self, epoch, logs=None):
+        random_latent_vectors = tf.random.normal(shape=(self.num_img, self.latent_dim))
+        generated_images = self.model.generator(random_latent_vectors)
+        generated_images *= 255
+        generated_images.numpy()
+        for i in range(self.num_img):
+            img = keras.utils.array_to_img(generated_images[i])
+            img.save(f"GAN/generated_img_{epoch:03d}_{i}.png")
+```
+
+이제 훈련을 시작한다.
+
+**코드 12-38. GAN 모델 컴파일하고 훈련하기**
+```
+epochs = 100
+
+gan = GAN(discriminator=discriminator, generator=generator, latent_dim=latent_dim)
+gan.compile(d_optimizer=keras.optimizers.Adam(learning_rate=0.0001),
+            g_optimizer=keras.optimizers.Adam(learning_rate=0.0001),
+            loss_fn=keras.losses.BinaryCrossentropy())
+gan.fit(dataset, epochs=epochs, callbacks=[GANMonitor(num_img=10, latent_dim=latent_dim)])
+```
+
+### 12.5.7 정리
+
+- GAN은 생성자 네트워크와 판별자 네트워크가 연결되어 구성된다. 판별자는 생성자의 출력과 훈련 데이터셋에서 가져온 진짜 이미지를 구분하도록 훈련된다. 생성자는 판별자를 속이도록 훈련된다. 놀랍게도 생성자는 훈련 세트의 이미지를 직접 보지 않는다. 데이터에 관한 정보는 판별자에게서 얻는다.
+- GAN은 훈련하기 어렵다. GAN 훈련이 고정된 손실 공간에서 수행하는 단순한 경사 하강법 과정이 아니라 동적 과정이기 때문이다. GAN을 올바르게 훈련하려면 경험적으로 찾은 여러 기교를 사용하고 많은 튜닝을 해야 한다.
+- GAN은 매우 실제 같은 이미지를 만들 수 있다. VAE와 달리 학습된 잠재 공간이 깔끔하게 연속된 구조를 가지지 않는다. 잠재 공간의 개념 벡터를 사용하여 이미지를 변환하는 등 실용적인 특정 애플리케이션에는 잘 맞지 않는다.
+
+
+
+## 12.6 요약
+
+- 시퀀스-투-시퀀스 모델을 사용하여 한 번에 한 스텝씩 시퀀스 데이터를 생성할 수 있다. 텍스트 생성뿐만 아니라 음표 하나씩 음악을 생성하거나 다른 어떤 시계열 데이터를 생성하는 곳에 적용할 수 있다.
+- 딥드림은 입력 공간에 경사 상승법을 적용하여 컨브넷 층 활성화를 최대화하는 식으로 동작한다.
+- 스타일 트랜스퍼 알고리즘에서는 경사 하강법을 통해 콘텐츠 이미지와 스타일 이미지를 연결하여 콘텐츠 이미지의 고수준 특성과 스타일 이미지의 국부적인 특징을 가진 이미지를 만든다.
+- VAE와 GAN은 이미지의 잠재 공간을 학습하고 이 잠재 공간에서 샘플링하여 완전히 새로운 이미지를 만들 수 있는 모델이다. **개념 벡터**(concept vector)를 사용하여 이미지를 변형할 수도 있다.
